@@ -1,7 +1,7 @@
 # INBOX — agent coordination
 
 **Feature branch:** `ccr-510da39c-6w5qgz`
-**Active builders:** builder-1 only
+**Active builders:** builder-1 only (Run 1 done; Run 2 queued)
 **Reviewer:** not used in M1. **Do not fire the reviewer routine** — when done, stop after opening your PR. The planner takes it from there.
 
 Full plan: [`plans/m1-thin-slice/plan.md`](../m1-thin-slice/plan.md). Spec: [`docs/technical-spec.md`](../../docs/technical-spec.md).
@@ -19,27 +19,7 @@ Full plan: [`plans/m1-thin-slice/plan.md`](../m1-thin-slice/plan.md). Spec: [`do
 
 ## builder-1
 
-**Run 1 of 2 — Phase 0 (contract + scaffold), then server.** Details: plan sections "Repository layout" and "Run 1".
-
-1. **Phase 0 — commit separately before anything else:**
-   - Repo layout: `contracts/`, `server/`, `agent/` (placeholder `README.md` only), `docker-compose.yml`, `.github/workflows/`, root `package.json` + `CLAUDE.md`.
-   - `contracts/scan-payload.v1.schema.json` covering every field in the spec's "Scan field mapping" table; unsupported fields are `null`, never omitted; `schema_version: 1`.
-   - Request/response schemas for `POST /api/agent/register` and `POST /api/agent/scans`.
-   - Payload fixtures: Windows desktop, Apple Silicon Mac, Intel Mac (invented values, marked as samples).
-   - Raw-output fixtures for the Windows CIM classes and macOS commands listed in the spec (best-effort realistic samples).
-   - A test that validates every payload fixture against the schema.
-2. **Server (`server/`)** — Next.js App Router + Drizzle + PostgreSQL:
-   - Schema + migrations for `users`, `devices`, `components`, `assignments`, `scans` per spec Data model.
-   - `POST /api/agent/register`: checks `ENROLLMENT_KEY` env var; creates/updates user, device, open assignment; returns `201` with device_id, token (once), check-in interval; stores only the token hash.
-   - `POST /api/agent/scans`: bearer auth (`401`), schema validation (`400`), `scan_uuid` dedupe (`409`), raw payload as JSONB, component sync (new rows; `removed_at` on missing; Apple Silicon CPU/RAM/storage `is_integrated = true`; no motherboard row on Mac), updates `last_full_scan_at` / `last_seen_at`.
-   - Dashboard: device list (hostname, OS, assigned user, department, last scan) and device detail (system info, components, latest raw scan). No login in M1.
-   - `docker-compose.yml`: app + Postgres, app bound to `0.0.0.0` so LAN machines can reach it; `.env.example` (do not create or edit `.env`).
-   - Integration tests posting the fixtures through register + scans and asserting DB state.
-   - GitHub Actions workflow running lint + tests (Postgres service container).
-
-**Done when:** schemas validate fixtures, migrations run on a fresh Postgres, `bun run lint` and `bun run test` pass, `docker compose up` serves the dashboard.
-
-Out of scope for this run: anything in `agent/` beyond the placeholder.
+(Run 1 completed — see reviewer section for summary. Run 2 is queued below.)
 
 ---
 
@@ -51,4 +31,35 @@ Out of scope for this run: anything in `agent/` beyond the placeholder.
 
 ## reviewer
 
-(Not used in M1. Builder summaries go here per the routine's instructions.)
+(Reviewer not used in M1. Builder summaries are kept here per the routine's instructions.)
+
+### From builder-1 — Run 1 (built directly in the planner session at the user's request)
+
+**Status:** DONE on `ccr-510da39c-6w5qgz` (Phase 0 commit `ba62f37`, server commit follows it).
+
+**Files changed:** `package.json`, `bun.lock`, `.gitignore`, `.dockerignore`, `.env.example`, `docker-compose.yml`, `CLAUDE.md`, `README.md`, `.github/workflows/server.yml`, `agent/README.md`, `contracts/**`, `server/**`.
+
+**What was done:**
+- Phase 0: JSON Schemas for scan payload v1 and register/scans requests and responses, Ajv validators and TS types in `@pcreader/contracts`, payload/register/raw fixtures for Windows, Apple Silicon and Intel Mac, and fixture validation tests (14).
+- Server: Drizzle schema and migration (users, devices, components, assignments, scans), `POST /api/agent/register`, `POST /api/agent/scans` with component sync, device list and detail pages, Docker Compose (db + migrate job + app), CI (lint, tests against Postgres, migration drift check, build). 27 server tests.
+- Verified: `bun run lint` and `bun run test` pass; `next build` passes; `docker compose up --build` serves the dashboard and accepts register → scan (201) → duplicate (409) over HTTP.
+
+**Contract decisions Run 2 must follow:**
+- Payload uses arrays `cpus`, `gpus`, `storage`, `volumes`, `network.adapters`; `motherboard` is `null` on macOS; `memory.modules` is `null` on Apple Silicon.
+- Every property is required (nullable instead of omitted); unknown properties are rejected. MAC addresses are upper-case, colon-separated.
+- `system.chip_name` carries the Apple Silicon chip name. macOS `system.model` is `"<machine_name> (<machine_model>)"`.
+- `storage[].is_internal: false` (USB drives) and `network.adapters[].is_physical: false` are stored in the scan but not turned into components.
+- `payload.os_type` must equal the registered device's OS (else 400).
+- Register: `403 invalid_enrollment_key`, `503 enrollment_disabled` (server has no key), `415` for a non-JSON content type. Scans: `409` returns `{ scan_id }` of the original. Body limit 2 MB (`413`).
+- Token format `pcr_<43 base64url chars>`. Re-registering the same `device_uuid` rotates the token.
+- `payload/windows-desktop.json` is the expected parser output for `raw/windows/`, and `payload/macos-apple-silicon.json` for `raw/macos/`.
+
+**Deviations from the spec's data model:**
+- `components.capacity` is `capacity_bytes` (bigint), with extra per-category fields in `details` (jsonb) and a `match_key` for identity across scans.
+- `devices` also stores `manufacturer`, `model`, `serial_number` (from the registration summary, then the latest scan).
+- `assignments.assigned_by` is text (`"self-registration"` for agent-created assignments) until staff accounts exist in M2.
+
+**What to check:**
+- Users are upserted by `employee_id`, so a registration can overwrite that employee's contact details. This is acceptable while registration needs the IT enrollment key; revisit with the Wails "update my details" flow.
+- No dashboard login in M1 and plain HTTP: LAN test use only.
+- Inside the cloud sandbox, Docker builds need the proxy CA (handled with a scratch override, not committed). On a normal computer, `docker compose up --build` works as is.

@@ -1,0 +1,41 @@
+name: server
+
+on:
+  push:
+    paths: ["contracts/**", "server/**", "package.json", "bun.lock", ".github/workflows/server.yml"]
+  pull_request:
+    paths: ["contracts/**", "server/**", "package.json", "bun.lock", ".github/workflows/server.yml"]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: pcreader_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+    env:
+      DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/pcreader_test
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - run: bun run lint
+      - run: bun run test
+      - name: Check migrations match the schema
+        working-directory: server
+        run: |
+          bunx drizzle-kit generate --name ci-check
+          test -z "$(git status --porcelain -- drizzle)" || (echo "Schema changed without a migration: run 'bun run db:generate' in server/" && exit 1)
+      - run: bun run --cwd server build
