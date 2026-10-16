@@ -153,7 +153,7 @@
               "mac_address": { "oneOf": [{ "type": "null" }, { "type": "string", "pattern": "^([0-9A-F]{2}:){5}[0-9A-F]{2}$" }], "description": "Upper-case, colon-separated" },
               "type": { "enum": ["ethernet", "wifi", "other"] },
               "is_physical": { "type": "boolean" },
-              "ip_addresses": { "type": "array", "items": { "type": "string" } },
+              "ip_addresses": { "type": "array", "items": { "type": "string" }, "description": "IPv4 and IPv6 addresses, excluding IPv6 link-local (fe80::/10)" },
               "gateway": { "$ref": "#/$defs/nstr" },
               "dns_servers": { "type": "array", "items": { "type": "string" } },
               "dhcp_enabled": { "type": ["boolean", "null"] }

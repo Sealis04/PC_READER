@@ -41,7 +41,7 @@ docker-compose.yml    # app + postgres for local testing
 
 ## Phases
 
-### Run 1 — Builder 1: Phase 0 (contract + scaffold), then server
+### Run 1 — Builder 1: Phase 0 (contract + scaffold), then server — DONE
 
 **Phase 0 — contract and scaffold (do first, commit separately)**
 1. Repo layout above, root README updated with how to run.
@@ -61,14 +61,14 @@ docker-compose.yml    # app + postgres for local testing
 
 **Done when:** schemas validate fixtures, migration runs on a fresh Postgres, integration tests pass in CI, `docker compose up` serves the dashboard.
 
-### Run 2 — Builder 1: Go agent
+### Run 2 — Builder 1: Go agent — DONE
 
 1. Go module in `agent/`. `Scanner` interface; `windows` and `darwin` implementations behind build tags; pure parser functions that take raw command output and return the payload struct, so they are testable on Linux.
 2. Parser unit tests against `contracts/fixtures/raw/*`; generated payloads must validate against `scan-payload.v1.schema.json`.
 3. CLI: `pcreader register --server URL --key KEY --name ... --employee-id ... --email ... --department ... --position ... --phone ...`, `pcreader scan [--upload] [--out file.json]`, `pcreader capture-raw --out dir/` (dumps raw command output so the user can send real fixtures back).
 4. `device_uuid` generated at first registration and stored in a local config file in the OS app-data folder; token stored with the OS credential store (Windows Credential Manager / macOS Keychain, e.g. via `github.com/zalando/go-keyring`).
 5. Error handling per spec table (400 no retry, 401 stop, 409 success, 429/5xx/timeout backoff 1/5/15/60 min — for the CLI, a bounded retry then exit non-zero is acceptable).
-6. GitHub Actions: `go test ./...`, cross-compile `pcreader.exe` (windows/amd64) and a macOS universal binary (`lipo` on a macOS runner, ad-hoc signed), uploaded as workflow artifacts.
+6. GitHub Actions: `go test ./...`, cross-compile `pcreader.exe` (windows/amd64) and macOS binaries (built: separate `darwin-arm64` and `darwin-amd64`, ad-hoc signed by the Go linker, instead of one universal binary), uploaded as workflow artifacts. Added: live-scan jobs on Windows and macOS runners.
 
 **Done when:** parser tests pass, CI produces downloadable Windows and Mac binaries, and a scan from the fixtures uploads successfully to the local server in an end-to-end test.
 

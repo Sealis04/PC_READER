@@ -31,8 +31,8 @@ jobs:
         with:
           bun-version: 1.4.2
       - run: bun install --frozen-lockfile
-      - run: bun run lint
-      - run: bun run test
+      - run: bun run --filter '*' lint
+      - run: bun run --filter @pcreader/contracts test && bun run --filter @pcreader/server test
       - name: Check migrations match the schema
         working-directory: server
         run: |

@@ -6,13 +6,14 @@ Internal device-inventory tool. A Go reporter CLI on agency Windows/Mac PCs send
 
 - `contracts/` — JSON Schemas (scan payload v1, agent API requests/responses), Ajv validators and TS types (`@pcreader/contracts`), plus fixtures. **Source of truth for server and agent.** Changing a schema needs a note in INBOX.md and updated fixtures.
 - `server/` — Next.js App Router (`@pcreader/server`). Agent API in `src/app/api/agent/*/route.ts`, which delegate to testable handlers in `src/lib/agent/`. Drizzle schema in `src/db/schema.ts`, migrations in `server/drizzle/`.
-- `agent/` — Go reporter (Milestone 1, Run 2).
+- `agent/` — Go agent CLI `pcreader` (module `github.com/sealis04/pc_reader/agent`). Collectors run OS commands (`internal/scan/{windows,darwin}/collect.go`); parsers are pure and fixture-tested (`parse.go`). See `agent/README.md`.
 
 ## Commands (run from repo root unless noted)
 
 - `bun install` — install all workspaces
-- `bun run lint` — `tsc --noEmit` + ESLint for every workspace
-- `bun run test` — contract fixture tests, then server tests (needs Postgres; `DATABASE_URL` defaults to `postgres://postgres@127.0.0.1:5432/pcreader_test`)
+- `bun run lint` — `tsc --noEmit` + ESLint for every workspace, then `go vet` + gofmt for `agent/`
+- `bun run test` — contract fixture tests, server tests (needs Postgres; `DATABASE_URL` defaults to `postgres://postgres@127.0.0.1:5432/pcreader_test`), then `go test -count=1 ./...` in `agent/`
+- `cd agent && PCREADER_E2E_SERVER=http://127.0.0.1:3000 PCREADER_E2E_KEY=... go test -count=1 -run TestEndToEnd ./cmd/pcreader` — agent CLI against a running server
 - `cd server && bun run dev` — dev server on `0.0.0.0:3000` (needs `DATABASE_URL`, `ENROLLMENT_KEY`)
 - `cd server && bun run db:generate` — create a migration after editing `src/db/schema.ts` (never hand-edit generated SQL; CI fails if schema and migrations drift)
 - `cd server && bun run db:migrate` — apply migrations
@@ -27,3 +28,5 @@ Internal device-inventory tool. A Go reporter CLI on agency Windows/Mac PCs send
 - Components are never deleted: a part missing from the latest scan gets `removed_at`. Identity is `match_key` (serial, MAC, or descriptive fields + occurrence counter) — see `src/lib/components.ts`.
 - A scan older than the device's `last_full_scan_at` is stored but does not change components.
 - History tables are append-only.
+- Go: always run tests with `-count=1`; the test cache does not see fixture changes in `contracts/` (outside the module).
+- Raw scanner output → payload changes must keep `contracts/fixtures/payload/windows-desktop.json` and `macos-apple-silicon.json` as the exact parser output for `fixtures/raw/{windows,macos}`.

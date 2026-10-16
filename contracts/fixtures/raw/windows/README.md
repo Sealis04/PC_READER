@@ -1,6 +1,6 @@
 # Windows raw samples
 
-Captured (in a real run) with, per class:
+The agent runs one PowerShell process that queries every class and prints `{ "<Class>": [...] }`; `capture-raw` splits it into one file per class. Equivalent per-class command:
 
 ```powershell
 Get-CimInstance -ClassName <Class> | Select-Object <properties> | ConvertTo-Json -Depth 3

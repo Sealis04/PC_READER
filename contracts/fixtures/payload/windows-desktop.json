@@ -46,7 +46,7 @@
   ],
   "network": {
     "adapters": [
-      { "name": "Intel(R) Ethernet Connection (17) I219-LM", "mac_address": "D0:8E:79:00:00:01", "type": "ethernet", "is_physical": true, "ip_addresses": ["10.20.30.123", "fe80::1c2d:3e4f:5a6b:7c8d"], "gateway": "10.20.30.1", "dns_servers": ["10.20.0.10", "10.20.0.11"], "dhcp_enabled": true },
+      { "name": "Intel(R) Ethernet Connection (17) I219-LM", "mac_address": "D0:8E:79:00:00:01", "type": "ethernet", "is_physical": true, "ip_addresses": ["10.20.30.123"], "gateway": "10.20.30.1", "dns_servers": ["10.20.0.10", "10.20.0.11"], "dhcp_enabled": true },
       { "name": "Intel(R) Wi-Fi 6E AX211 160MHz", "mac_address": "70:A8:D3:00:00:02", "type": "wifi", "is_physical": true, "ip_addresses": [], "gateway": null, "dns_servers": [], "dhcp_enabled": true }
     ],
     "wifi_ssid": null

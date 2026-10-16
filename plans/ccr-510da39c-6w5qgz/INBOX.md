@@ -1,7 +1,7 @@
 # INBOX — agent coordination
 
 **Feature branch:** `ccr-510da39c-6w5qgz`
-**Active builders:** builder-1 only (Run 1 done; Run 2 queued)
+**Active builders:** none (Runs 1 and 2 done; next is the user's real-machine test)
 **Reviewer:** not used in M1. **Do not fire the reviewer routine** — when done, stop after opening your PR. The planner takes it from there.
 
 Full plan: [`plans/m1-thin-slice/plan.md`](../m1-thin-slice/plan.md). Spec: [`docs/technical-spec.md`](../../docs/technical-spec.md).
@@ -19,13 +19,16 @@ Full plan: [`plans/m1-thin-slice/plan.md`](../m1-thin-slice/plan.md). Spec: [`do
 
 ## builder-1
 
-(Run 1 completed — see reviewer section for summary. Run 2 is queued below.)
+(Runs 1 and 2 completed — see reviewer section for summaries.)
 
 ---
 
-## Queued (planner will assign after Run 1 merges — builder-1 do not start these)
+## Next: user real-machine test (Phase 2)
 
-**Run 2 — Go agent.** See plan section "Run 2". The planner merges the Run 1 PR into the feature branch, moves these tasks under `## builder-1`, and fires builder-1 again.
+1. `cp .env.example .env`, set `ENROLLMENT_KEY` and `POSTGRES_PASSWORD`, then `docker compose up -d --build`.
+2. Download `pcreader-binaries` from the latest **agent** workflow run.
+3. On a Windows PC and a Mac: `capture-raw --out pcreader-raw`, `register ...`, `scan --upload` (see `agent/README.md`).
+4. Check both machines in the dashboard. Send back the `pcreader-raw` folders; they replace the sample fixtures, and parser fixes follow.
 
 ---
 
@@ -63,3 +66,28 @@ Full plan: [`plans/m1-thin-slice/plan.md`](../m1-thin-slice/plan.md). Spec: [`do
 - Users are upserted by `employee_id`, so a registration can overwrite that employee's contact details. This is acceptable while registration needs the IT enrollment key; revisit with the Wails "update my details" flow.
 - No dashboard login in M1 and plain HTTP: LAN test use only.
 - Inside the cloud sandbox, Docker builds need the proxy CA (handled with a scratch override, not committed). On a normal computer, `docker compose up --build` works as is.
+
+
+### From builder-1 — Run 2 (built directly in the planner session at the user's request)
+
+**Status:** DONE on `ccr-510da39c-6w5qgz`.
+
+**Files changed:** `agent/**` (new Go module), `.github/workflows/agent.yml` (new), `.github/workflows/server.yml`, `package.json`, `.gitignore`, `CLAUDE.md`, `contracts/scan-payload.v1.schema.json` (description only), `contracts/fixtures/payload/windows-desktop.json`, `contracts/fixtures/raw/*/README.md`.
+
+**What was done:**
+- `pcreader` CLI with `register`, `scan [--upload] [--out]`, `capture-raw`, `status`, `version`. `--from-raw DIR` parses a saved capture instead of scanning.
+- Windows collector: one PowerShell process queries all CIM classes (`-EncodedCommand`), plus `netsh wlan`. macOS collector: one `system_profiler -json` call plus `sysctl`, `sw_vers`, `scutil`, `networksetup`, `ifconfig`, `route`, `ipconfig getsummary`, `df`.
+- Pure parsers. Expected-output tests: `raw/windows` → `payload/windows-desktop.json` and `raw/macos` → `payload/macos-apple-silicon.json` must match exactly and validate against the schema. Edge-case tests cover Intel Macs, SATA HDDs, USB drives, a missing storage namespace, bridge ports, redacted SSIDs and PowerShell's single-object and wrapped-array outputs.
+- API client implements the spec's error rules (400 no retry, 401 stop, 409 success, 429/5xx/network bounded retry). Token goes in Credential Manager / Keychain via go-keyring; config in the OS app-data folder.
+- CI (`agent.yml`): gofmt, `go vet` for linux/windows/darwin, tests, an end-to-end test against a real server + Postgres, live scans on `windows-latest` and `macos-latest` runners (raw output uploaded as artifacts), and cross-compiled binaries with SHA256SUMS as the `pcreader-binaries` artifact.
+- Verified locally: all Go tests pass; the end-to-end test against a local server registered both fixtures and uploaded two scans each (9 and 5 active components); all three binaries build; the darwin/arm64 binary carries an ad-hoc signature.
+
+**Deviations from the plan:**
+- macOS ships as two binaries (`darwin-arm64`, `darwin-amd64`) instead of one universal binary; building universal needs `lipo` on a macOS runner and isn't required for M1.
+- IPv6 link-local (`fe80::/10`) addresses are left out on both platforms, so the Windows payload fixture lost its `fe80::` entry. The schema now documents this.
+- `register` doesn't upload a first scan; run `scan --upload` after it.
+
+**What to check:**
+- The collectors have not yet run on real hardware. The CI live-scan jobs are the first real run; the user's machines are the second.
+- Windows: the SSID is parsed from English `netsh` output only; other locales give null.
+- macOS: DNS servers and gateway are only attached to the default-route interface.

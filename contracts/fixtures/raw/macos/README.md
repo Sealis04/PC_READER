@@ -3,15 +3,15 @@
 Captured (in a real run) with:
 
 ```sh
-system_profiler -json SPHardwareDataType SPMemoryDataType SPNVMeDataType SPSerialATADataType SPStorageDataType SPDisplaysDataType
-sysctl machdep.cpu.brand_string hw.physicalcpu hw.logicalcpu hw.memsize
+system_profiler -json -detailLevel full SPHardwareDataType SPMemoryDataType SPNVMeDataType SPSerialATADataType SPStorageDataType SPDisplaysDataType
+sysctl <key>                 # one call per key: brand_string, vendor, physicalcpu, logicalcpu, memsize, cpufrequency
 sw_vers
 scutil --get ComputerName
 networksetup -listallhardwareports
-ifconfig en0
+ifconfig                     # all interfaces (the sample shows en0 only)
 route -n get default
 scutil --dns
-ipconfig getsummary en0      # SSID; macOS 14+ may redact it without Location permission
+ipconfig getsummary <device>  # per hardware port: DHCP and SSID; macOS 14+ may redact the SSID
 df -k
 ```
 
