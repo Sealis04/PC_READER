@@ -1,0 +1,22 @@
+[
+    {
+        "DeviceLocator": "DIMM1",
+        "BankLabel": "BANK 0",
+        "Manufacturer": "SK Hynix",
+        "Capacity": 8589934592,
+        "Speed": 3200,
+        "ConfiguredClockSpeed": 3200,
+        "PartNumber": "HMA81GU6DJR8N-XN    ",
+        "SerialNumber": "SAMPLE01"
+    },
+    {
+        "DeviceLocator": "DIMM2",
+        "BankLabel": "BANK 1",
+        "Manufacturer": "SK Hynix",
+        "Capacity": 8589934592,
+        "Speed": 3200,
+        "ConfiguredClockSpeed": 3200,
+        "PartNumber": "HMA81GU6DJR8N-XN    ",
+        "SerialNumber": "SAMPLE02"
+    }
+]

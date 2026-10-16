@@ -1,0 +1,21 @@
+{
+  "SPDisplaysDataType": [
+    {
+      "_name": "Apple M2",
+      "spdisplays_mtlgpufamilysupport": "spdisplays_metal3",
+      "spdisplays_ndrvs": [
+        {
+          "_name": "Color LCD",
+          "_spdisplays_display-product-id": "a050",
+          "spdisplays_main": "spdisplays_yes",
+          "spdisplays_resolution": "2560 x 1664 Retina"
+        }
+      ],
+      "spdisplays_vendor": "sppci_vendor_Apple",
+      "sppci_bus": "spdisplays_builtin",
+      "sppci_cores": "10",
+      "sppci_device_type": "spdisplays_gpu",
+      "sppci_model": "Apple M2"
+    }
+  ]
+}

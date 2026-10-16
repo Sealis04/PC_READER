@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "os_type": "macos",
+  "agent_version": "0.1.0",
+  "system": {
+    "manufacturer": "Apple",
+    "model": "MacBook Air (Mac14,2)",
+    "serial_number": "SAMPLEM2XYZ",
+    "hardware_uuid": "8A1B2C3D-4E5F-5A6B-8C7D-9E0F1A2B3C4D",
+    "hostname": "AGY-MAC-0045",
+    "os_name": "macOS",
+    "os_version": "14.6.1",
+    "os_build": "23G93",
+    "firmware_version": "10151.140.19",
+    "chip_name": "Apple M2"
+  },
+  "cpus": [
+    {
+      "manufacturer": "Apple",
+      "model": "Apple M2",
+      "cores": 8,
+      "threads": 8,
+      "base_speed_mhz": null,
+      "is_integrated": true
+    }
+  ],
+  "memory": {
+    "total_bytes": 17179869184,
+    "is_integrated": true,
+    "modules": null
+  },
+  "storage": [
+    { "model": "APPLE SSD AP0512Z", "serial_number": "SAMPLE0512Z0001", "size_bytes": 500277790720, "media_type": "ssd", "bus_type": "Apple Fabric", "is_internal": true, "is_integrated": true }
+  ],
+  "volumes": [
+    { "mount_point": "/", "label": "Macintosh HD", "filesystem": "apfs", "size_bytes": 494384795648, "free_bytes": 301234567168 }
+  ],
+  "motherboard": null,
+  "gpus": [
+    { "name": "Apple M2", "memory_bytes": null, "driver_version": null, "is_integrated": true }
+  ],
+  "network": {
+    "adapters": [
+      { "name": "Wi-Fi", "mac_address": "F4:D4:88:00:00:03", "type": "wifi", "is_physical": true, "ip_addresses": ["10.20.40.45"], "gateway": "10.20.40.1", "dns_servers": ["10.20.0.10", "10.20.0.11"], "dhcp_enabled": true }
+    ],
+    "wifi_ssid": "AGY-STAFF"
+  }
+}

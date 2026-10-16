@@ -1,0 +1,29 @@
+[
+    {
+        "Index": 1,
+        "Name": "Intel(R) Ethernet Connection (17) I219-LM",
+        "NetConnectionID": "Ethernet",
+        "MACAddress": "D0:8E:79:00:00:01",
+        "PhysicalAdapter": true,
+        "AdapterTypeId": 0,
+        "NetConnectionStatus": 2
+    },
+    {
+        "Index": 2,
+        "Name": "Intel(R) Wi-Fi 6E AX211 160MHz",
+        "NetConnectionID": "Wi-Fi",
+        "MACAddress": "70:A8:D3:00:00:02",
+        "PhysicalAdapter": true,
+        "AdapterTypeId": 9,
+        "NetConnectionStatus": 7
+    },
+    {
+        "Index": 3,
+        "Name": "WAN Miniport (IP)",
+        "NetConnectionID": null,
+        "MACAddress": null,
+        "PhysicalAdapter": false,
+        "AdapterTypeId": null,
+        "NetConnectionStatus": null
+    }
+]

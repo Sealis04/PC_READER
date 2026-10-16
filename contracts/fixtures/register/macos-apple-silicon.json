@@ -1,0 +1,16 @@
+{
+  "enrollment_key": "sample-enrollment-key",
+  "device_uuid": "0b9a8c7d-6e5f-4a3b-9c2d-1e0f9a8b7c6d",
+  "os_type": "macos",
+  "hostname": "AGY-MAC-0045",
+  "hardware_summary": { "manufacturer": "Apple", "model": "MacBook Air (Mac14,2)", "serial_number": "SAMPLEM2XYZ" },
+  "user": {
+    "full_name": "Maria Santos",
+    "employee_id": "EMP-0002",
+    "email": "maria.santos@example.gov.ph",
+    "department": "Planning",
+    "position": null,
+    "phone": null,
+    "policy_acknowledged": true
+  }
+}

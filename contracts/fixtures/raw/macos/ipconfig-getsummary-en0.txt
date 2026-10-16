@@ -1,0 +1,15 @@
+<dictionary> {
+  Hashed-BSSID : 00:00:00:00:00:00
+  IPv4 : <array> {
+    0 : <dictionary> {
+      Addresses : <array> {
+        0 : 10.20.40.45
+      }
+      ConfigMethod : DHCP
+    }
+  }
+  InterfaceType : WiFi
+  LinkStatusActive : TRUE
+  SSID : AGY-STAFF
+  Security : WPA2_PSK
+}

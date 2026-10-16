@@ -1,0 +1,172 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pcreader.internal/contracts/scan-payload.v1.schema.json",
+  "title": "PC_READER scan payload, schema version 1",
+  "description": "Hardware and network snapshot produced by the Windows and macOS scanners. Every property is required; a value the platform cannot supply is null, never omitted. See docs/technical-spec.md, 'Scan field mapping'.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "os_type", "agent_version", "system", "cpus", "memory", "storage", "volumes", "motherboard", "gpus", "network"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "os_type": { "$ref": "#/$defs/os_type" },
+    "agent_version": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "system": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["manufacturer", "model", "serial_number", "hardware_uuid", "hostname", "os_name", "os_version", "os_build", "firmware_version", "chip_name"],
+      "properties": {
+        "manufacturer": { "$ref": "#/$defs/nstr" },
+        "model": { "$ref": "#/$defs/nstr" },
+        "serial_number": { "$ref": "#/$defs/nstr", "description": "Some custom-built PCs report a placeholder such as 'To be filled by O.E.M.'" },
+        "hardware_uuid": { "$ref": "#/$defs/nstr", "description": "Supporting data only; the device ID is generated at install" },
+        "hostname": { "type": "string", "minLength": 1, "maxLength": 255 },
+        "os_name": { "$ref": "#/$defs/nstr" },
+        "os_version": { "$ref": "#/$defs/nstr" },
+        "os_build": { "$ref": "#/$defs/nstr" },
+        "firmware_version": { "$ref": "#/$defs/nstr" },
+        "chip_name": { "$ref": "#/$defs/nstr", "description": "Apple Silicon chip name (e.g. 'Apple M2'); null elsewhere" }
+      }
+    },
+    "cpus": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["manufacturer", "model", "cores", "threads", "base_speed_mhz", "is_integrated"],
+        "properties": {
+          "manufacturer": { "$ref": "#/$defs/nstr" },
+          "model": { "$ref": "#/$defs/nstr" },
+          "cores": { "$ref": "#/$defs/nint" },
+          "threads": { "$ref": "#/$defs/nint" },
+          "base_speed_mhz": { "$ref": "#/$defs/nint" },
+          "is_integrated": { "type": "boolean", "description": "true on Apple Silicon" }
+        }
+      }
+    },
+    "memory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["total_bytes", "is_integrated", "modules"],
+      "properties": {
+        "total_bytes": { "$ref": "#/$defs/nint" },
+        "is_integrated": { "type": "boolean", "description": "true on Apple Silicon (unified memory)" },
+        "modules": {
+          "description": "Per-module details; null when the platform cannot list modules (Apple Silicon)",
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["slot", "manufacturer", "size_bytes", "speed_mhz", "part_number", "serial_number"],
+                "properties": {
+                  "slot": { "$ref": "#/$defs/nstr" },
+                  "manufacturer": { "$ref": "#/$defs/nstr" },
+                  "size_bytes": { "$ref": "#/$defs/nint" },
+                  "speed_mhz": { "$ref": "#/$defs/nint" },
+                  "part_number": { "$ref": "#/$defs/nstr" },
+                  "serial_number": { "$ref": "#/$defs/nstr" }
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "storage": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["model", "serial_number", "size_bytes", "media_type", "bus_type", "is_internal", "is_integrated"],
+        "properties": {
+          "model": { "$ref": "#/$defs/nstr" },
+          "serial_number": { "$ref": "#/$defs/nstr" },
+          "size_bytes": { "$ref": "#/$defs/nint" },
+          "media_type": { "enum": ["ssd", "hdd", "unknown", null] },
+          "bus_type": { "$ref": "#/$defs/nstr", "description": "e.g. NVMe, SATA, USB, Apple Fabric" },
+          "is_internal": { "type": ["boolean", "null"] },
+          "is_integrated": { "type": "boolean", "description": "true for the soldered internal SSD on Apple Silicon" }
+        }
+      }
+    },
+    "volumes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["mount_point", "label", "filesystem", "size_bytes", "free_bytes"],
+        "properties": {
+          "mount_point": { "type": "string", "minLength": 1 },
+          "label": { "$ref": "#/$defs/nstr" },
+          "filesystem": { "$ref": "#/$defs/nstr" },
+          "size_bytes": { "$ref": "#/$defs/nint" },
+          "free_bytes": { "$ref": "#/$defs/nint" }
+        }
+      }
+    },
+    "motherboard": {
+      "description": "null on macOS: not available as a separate part",
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["manufacturer", "product", "serial_number"],
+          "properties": {
+            "manufacturer": { "$ref": "#/$defs/nstr" },
+            "product": { "$ref": "#/$defs/nstr" },
+            "serial_number": { "$ref": "#/$defs/nstr" }
+          }
+        }
+      ]
+    },
+    "gpus": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "memory_bytes", "driver_version", "is_integrated"],
+        "properties": {
+          "name": { "$ref": "#/$defs/nstr" },
+          "memory_bytes": { "$ref": "#/$defs/nint" },
+          "driver_version": { "$ref": "#/$defs/nstr" },
+          "is_integrated": { "type": "boolean" }
+        }
+      }
+    },
+    "network": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["adapters", "wifi_ssid"],
+      "properties": {
+        "adapters": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "mac_address", "type", "is_physical", "ip_addresses", "gateway", "dns_servers", "dhcp_enabled"],
+            "properties": {
+              "name": { "type": "string", "minLength": 1 },
+              "mac_address": { "oneOf": [{ "type": "null" }, { "type": "string", "pattern": "^([0-9A-F]{2}:){5}[0-9A-F]{2}$" }], "description": "Upper-case, colon-separated" },
+              "type": { "enum": ["ethernet", "wifi", "other"] },
+              "is_physical": { "type": "boolean" },
+              "ip_addresses": { "type": "array", "items": { "type": "string" } },
+              "gateway": { "$ref": "#/$defs/nstr" },
+              "dns_servers": { "type": "array", "items": { "type": "string" } },
+              "dhcp_enabled": { "type": ["boolean", "null"] }
+            }
+          }
+        },
+        "wifi_ssid": { "$ref": "#/$defs/nstr", "description": "null when not on Wi-Fi or hidden by OS location permission" }
+      }
+    }
+  },
+  "$defs": {
+    "os_type": { "enum": ["windows", "macos"] },
+    "nstr": { "type": ["string", "null"], "maxLength": 1024 },
+    "nint": { "type": ["integer", "null"], "minimum": 0 }
+  }
+}

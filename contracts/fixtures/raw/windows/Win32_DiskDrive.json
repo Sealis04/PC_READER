@@ -1,0 +1,18 @@
+[
+    {
+        "Index": 0,
+        "Model": "SAMSUNG MZVL2512HCJQ-00BD1",
+        "SerialNumber": "SAMPLE-NVME-0001",
+        "Size": 512110190592,
+        "InterfaceType": "SCSI",
+        "MediaType": "Fixed hard disk media"
+    },
+    {
+        "Index": 1,
+        "Model": "ST1000DM010-2EP102",
+        "SerialNumber": "            SAMPLE-HDD-0001",
+        "Size": 1000204886016,
+        "InterfaceType": "IDE",
+        "MediaType": "Fixed hard disk media"
+    }
+]

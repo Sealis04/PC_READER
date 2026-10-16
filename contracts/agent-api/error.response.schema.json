@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pcreader.internal/contracts/agent-api/error.response.schema.json",
+  "title": "Agent API error response (4xx/5xx)",
+  "type": "object",
+  "required": ["error"],
+  "properties": {
+    "error": { "type": "string", "description": "Machine-readable code, e.g. invalid_payload, unauthorized, duplicate_scan, payload_too_large" },
+    "message": { "type": "string" },
+    "details": { "type": "array", "items": { "type": "object" } }
+  }
+}

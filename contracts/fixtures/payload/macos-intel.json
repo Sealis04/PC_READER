@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "os_type": "macos",
+  "agent_version": "0.1.0",
+  "system": {
+    "manufacturer": "Apple",
+    "model": "iMac (Retina 5K, 27-inch, 2020)",
+    "serial_number": "SAMPLEIMAC20",
+    "hardware_uuid": "1F2E3D4C-5B6A-5978-8796-A5B4C3D2E1F0",
+    "hostname": "AGY-MAC-0012",
+    "os_name": "macOS",
+    "os_version": "13.6.9",
+    "os_build": "22G830",
+    "firmware_version": "2069.0.0.0.0",
+    "chip_name": null
+  },
+  "cpus": [
+    {
+      "manufacturer": "GenuineIntel",
+      "model": "Intel(R) Core(TM) i5-10500 CPU @ 3.10GHz",
+      "cores": 6,
+      "threads": 12,
+      "base_speed_mhz": 3100,
+      "is_integrated": false
+    }
+  ],
+  "memory": {
+    "total_bytes": 17179869184,
+    "is_integrated": false,
+    "modules": [
+      { "slot": "DIMM0/BANK 0", "manufacturer": "Micron", "size_bytes": 8589934592, "speed_mhz": 2667, "part_number": "8ATF1G64HZ-2G6E1", "serial_number": "SAMPLE11" },
+      { "slot": "DIMM1/BANK 1", "manufacturer": "Micron", "size_bytes": 8589934592, "speed_mhz": 2667, "part_number": "8ATF1G64HZ-2G6E1", "serial_number": "SAMPLE12" }
+    ]
+  },
+  "storage": [
+    { "model": "APPLE SSD AP0512N", "serial_number": "SAMPLE0512N0001", "size_bytes": 500277790720, "media_type": "ssd", "bus_type": "NVMe", "is_internal": true, "is_integrated": false }
+  ],
+  "volumes": [
+    { "mount_point": "/", "label": "Macintosh HD", "filesystem": "apfs", "size_bytes": 499963174912, "free_bytes": 210987654144 }
+  ],
+  "motherboard": null,
+  "gpus": [
+    { "name": "AMD Radeon Pro 5300", "memory_bytes": 4294967296, "driver_version": null, "is_integrated": false }
+  ],
+  "network": {
+    "adapters": [
+      { "name": "Ethernet", "mac_address": "38:F9:D3:00:00:04", "type": "ethernet", "is_physical": true, "ip_addresses": ["10.20.30.12"], "gateway": "10.20.30.1", "dns_servers": ["10.20.0.10"], "dhcp_enabled": true },
+      { "name": "Wi-Fi", "mac_address": "38:F9:D3:00:00:05", "type": "wifi", "is_physical": true, "ip_addresses": [], "gateway": null, "dns_servers": [], "dhcp_enabled": null }
+    ],
+    "wifi_ssid": null
+  }
+}

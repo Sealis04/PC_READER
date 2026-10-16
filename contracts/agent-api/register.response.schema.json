@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pcreader.internal/contracts/agent-api/register.response.schema.json",
+  "title": "POST /api/agent/register 201 response",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["device_id", "device_token", "checkin_interval_seconds"],
+  "properties": {
+    "device_id": { "type": "string", "format": "uuid" },
+    "device_token": { "type": "string", "minLength": 32, "description": "Returned once; the agent stores it in the OS credential store" },
+    "checkin_interval_seconds": { "type": "integer", "minimum": 60 }
+  }
+}

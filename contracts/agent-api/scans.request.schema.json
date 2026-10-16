@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pcreader.internal/contracts/agent-api/scans.request.schema.json",
+  "title": "POST /api/agent/scans request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["scan_uuid", "scan_type", "collected_at", "payload"],
+  "properties": {
+    "scan_uuid": { "type": "string", "format": "uuid", "description": "Generated on the device; duplicates return 409 and count as success" },
+    "scan_type": { "enum": ["scheduled", "startup", "on_demand", "manual"] },
+    "collected_at": { "type": "string", "format": "date-time" },
+    "payload": { "$ref": "https://pcreader.internal/contracts/scan-payload.v1.schema.json" }
+  }
+}

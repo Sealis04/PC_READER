@@ -1,0 +1,9 @@
+{
+  "name": "pc-reader",
+  "private": true,
+  "workspaces": ["contracts", "server"],
+  "scripts": {
+    "lint": "bun run --filter '*' lint",
+    "test": "bun run --filter @pcreader/contracts test && bun run --filter @pcreader/server test"
+  }
+}

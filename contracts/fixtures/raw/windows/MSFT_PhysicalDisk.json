@@ -1,0 +1,18 @@
+[
+    {
+        "DeviceId": "0",
+        "FriendlyName": "SAMSUNG MZVL2512HCJQ-00BD1",
+        "SerialNumber": "SAMPLE-NVME-0001",
+        "MediaType": 4,
+        "BusType": 17,
+        "Size": 512110190592
+    },
+    {
+        "DeviceId": "1",
+        "FriendlyName": "ST1000DM010-2EP102",
+        "SerialNumber": "SAMPLE-HDD-0001",
+        "MediaType": 3,
+        "BusType": 11,
+        "Size": 1000204886016
+    }
+]
