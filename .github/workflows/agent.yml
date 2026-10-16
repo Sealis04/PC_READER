@@ -81,6 +81,14 @@ jobs:
           PCREADER_LIVE_SCAN: "1"
           PCREADER_LIVE_SCAN_OUT: ${{ runner.temp }}/live-scan
         run: go test -count=1 -run TestLiveScan -v ./internal/scan
+      - name: Show raw output
+        if: always()
+        shell: bash
+        run: |
+          for f in "$RUNNER_TEMP"/live-scan/raw/* "$RUNNER_TEMP"/live-scan/payload.json; do
+            [ -f "$f" ] || continue
+            echo "::group::$(basename "$f")"; head -c 20000 "$f"; echo; echo "::endgroup::"
+          done
       - uses: actions/upload-artifact@v4
         if: always()
         with:

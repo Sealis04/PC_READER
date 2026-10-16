@@ -248,6 +248,34 @@ func Parse(raw rd.Set, agentVersion string) (*payload.Scan, error) {
 	if err := addDrives("SPSerialATADataType", "SATA"); err != nil {
 		return nil, err
 	}
+	if len(s.Storage) == 0 {
+		// No NVMe or SATA drives listed (e.g. a virtual machine's virtio disk): fall back to
+		// the physical drives behind mounted volumes. Size and serial are unknown there.
+		seen := map[string]bool{}
+		for _, v := range storageItems {
+			pd, ok := v["physical_drive"].(map[string]any)
+			name := rd.Deref(rd.Str(pd, "device_name"))
+			if !ok || name == "" || seen[name] {
+				continue
+			}
+			seen[name] = true
+			media := "unknown"
+			switch rd.Deref(rd.Str(pd, "medium_type")) {
+			case "ssd":
+				media = "ssd"
+			case "rotational", "hdd":
+				media = "hdd"
+			}
+			internal := rd.Deref(rd.Str(pd, "is_internal_disk")) == "yes"
+			s.Storage = append(s.Storage, payload.Disk{
+				Model:        rd.StrPtr(name),
+				MediaType:    &media,
+				BusType:      rd.Str(pd, "protocol"),
+				IsInternal:   rd.BoolPtr(internal),
+				IsIntegrated: appleSilicon && internal && strings.HasPrefix(name, "APPLE SSD"),
+			})
+		}
+	}
 
 	// Volumes: user-facing mounts only.
 	for _, v := range storageItems {

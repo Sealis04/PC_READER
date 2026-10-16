@@ -100,3 +100,22 @@ func TestParseSize(t *testing.T) {
 		t.Error("expected nil for 'empty'")
 	}
 }
+
+func TestVirtualDiskFallsBackToStorageDataType(t *testing.T) {
+	raw := loadRaw(t)
+	raw["SPNVMeDataType.json"] = []byte(`{"SPNVMeDataType":[]}`)
+	raw["SPStorageDataType.json"] = []byte(`{"SPStorageDataType":[
+		{"_name":"Macintosh HD","mount_point":"/","file_system":"APFS","size_in_bytes":100000000000,"free_space_in_bytes":50000000000,
+		 "physical_drive":{"device_name":"Apple Virtio Block Device","is_internal_disk":"yes","medium_type":"ssd","protocol":"Virtio"}},
+		{"_name":"Data","mount_point":"/System/Volumes/Data","physical_drive":{"device_name":"Apple Virtio Block Device","is_internal_disk":"yes"}}]}`)
+	s, err := Parse(raw, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := contract.Validate("payload", s); err != nil {
+		t.Fatal(err)
+	}
+	if len(s.Storage) != 1 || rd.Deref(s.Storage[0].Model) != "Apple Virtio Block Device" || rd.Deref(s.Storage[0].BusType) != "Virtio" || s.Storage[0].IsIntegrated {
+		t.Fatalf("unexpected storage %+v", s.Storage)
+	}
+}
