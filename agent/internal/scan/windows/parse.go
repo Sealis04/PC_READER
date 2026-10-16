@@ -50,6 +50,18 @@ func mediaType(code *int64) *string {
 	return rd.StrPtr("unknown")
 }
 
+// placeholders are values firmware and hypervisors report instead of a real part or serial number.
+var placeholders = map[string]bool{"none": true, "unknown": true, "n/a": true, "default string": true, "to be filled by o.e.m.": true, "not specified": true, "not available": true, "system serial number": true}
+
+// field is rd.Str with firmware placeholders treated as missing.
+func field(m map[string]any, key string) *string {
+	v := rd.Str(m, key)
+	if v != nil && placeholders[strings.ToLower(*v)] {
+		return nil
+	}
+	return v
+}
+
 var integratedGPU = regexp.MustCompile(`(?i)\bintel\b|radeon\(tm\) graphics|radeon graphics|vega \d+ graphics|microsoft basic display`)
 
 func Parse(raw rd.Set, agentVersion string) (*payload.Scan, error) {
@@ -123,7 +135,7 @@ func Parse(raw rd.Set, agentVersion string) (*payload.Scan, error) {
 		System: payload.System{
 			Manufacturer:    rd.Str(cs, "Manufacturer"),
 			Model:           rd.Str(cs, "Model"),
-			SerialNumber:    rd.Str(bios, "SerialNumber"),
+			SerialNumber:    field(bios, "SerialNumber"),
 			HardwareUUID:    rd.Str(product, "UUID"),
 			Hostname:        hostname,
 			OSName:          rd.Str(osInfo, "Caption"),
@@ -158,11 +170,11 @@ func Parse(raw rd.Set, agentVersion string) (*payload.Scan, error) {
 		}
 		s.Memory.Modules = append(s.Memory.Modules, payload.MemModule{
 			Slot:         rd.Str(m, "DeviceLocator"),
-			Manufacturer: rd.Str(m, "Manufacturer"),
+			Manufacturer: field(m, "Manufacturer"),
 			SizeBytes:    size,
 			SpeedMHz:     speed,
-			PartNumber:   rd.Str(m, "PartNumber"),
-			SerialNumber: rd.Str(m, "SerialNumber"),
+			PartNumber:   field(m, "PartNumber"),
+			SerialNumber: field(m, "SerialNumber"),
 		})
 	}
 	if total > 0 {
@@ -190,7 +202,7 @@ func Parse(raw rd.Set, agentVersion string) (*payload.Scan, error) {
 		}
 		s.Storage = append(s.Storage, payload.Disk{
 			Model:        rd.Str(d, "Model"),
-			SerialNumber: rd.Str(d, "SerialNumber"),
+			SerialNumber: field(d, "SerialNumber"),
 			SizeBytes:    rd.Int(d, "Size"),
 			MediaType:    media,
 			BusType:      bus,
@@ -213,9 +225,9 @@ func Parse(raw rd.Set, agentVersion string) (*payload.Scan, error) {
 
 	if board != nil {
 		s.Motherboard = &payload.Board{
-			Manufacturer: rd.Str(board, "Manufacturer"),
-			Product:      rd.Str(board, "Product"),
-			SerialNumber: rd.Str(board, "SerialNumber"),
+			Manufacturer: field(board, "Manufacturer"),
+			Product:      field(board, "Product"),
+			SerialNumber: field(board, "SerialNumber"),
 		}
 	}
 

@@ -1,6 +1,7 @@
 package darwin
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/sealis04/pc_reader/agent/internal/contract"
@@ -101,13 +102,20 @@ func TestParseSize(t *testing.T) {
 	}
 }
 
-func TestVirtualDiskFallsBackToStorageDataType(t *testing.T) {
+// Shape taken from a GitHub-hosted macOS runner (Apple Virtual Machine): no NVMe/SATA entries,
+// the internal disk has no device_name, and mounted cryptex disk images sit beside it.
+func TestVirtualMachineStorage(t *testing.T) {
 	raw := loadRaw(t)
 	raw["SPNVMeDataType.json"] = []byte(`{"SPNVMeDataType":[]}`)
 	raw["SPStorageDataType.json"] = []byte(`{"SPStorageDataType":[
-		{"_name":"Macintosh HD","mount_point":"/","file_system":"APFS","size_in_bytes":100000000000,"free_space_in_bytes":50000000000,
-		 "physical_drive":{"device_name":"Apple Virtio Block Device","is_internal_disk":"yes","medium_type":"ssd","protocol":"Virtio"}},
-		{"_name":"Data","mount_point":"/System/Volumes/Data","physical_drive":{"device_name":"Apple Virtio Block Device","is_internal_disk":"yes"}}]}`)
+		{"_name":"Data","mount_point":"/System/Volumes/Data","file_system":"APFS","size_in_bytes":343073095680,"free_space_in_bytes":102916014080,
+		 "physical_drive":{"is_internal_disk":"yes","media_name":"AppleAPFSMedia","medium_type":"ssd"}},
+		{"_name":"RevivalC13M302392.UC_SIRI_Cryptex","mount_point":"/System/Library/AssetsV2/x.asset/.AssetData","file_system":"Case-sensitive APFS","size_in_bytes":545259520,"free_space_in_bytes":22228992,
+		 "physical_drive":{"device_name":"Disk Image","is_internal_disk":"no","protocol":"Disk Image"}},
+		{"_name":"Macintosh HD","mount_point":"/","file_system":"APFS","size_in_bytes":343073095680,"free_space_in_bytes":102916001792,
+		 "physical_drive":{"is_internal_disk":"yes","media_name":"AppleAPFSMedia","medium_type":"ssd"}},
+		{"_name":"Backup","mount_point":"/Volumes/Backup","file_system":"ExFAT","size_in_bytes":1000,"free_space_in_bytes":500,
+		 "physical_drive":{"device_name":"SanDisk Extreme","is_internal_disk":"no","protocol":"USB"}}]}`)
 	s, err := Parse(raw, "test")
 	if err != nil {
 		t.Fatal(err)
@@ -115,7 +123,17 @@ func TestVirtualDiskFallsBackToStorageDataType(t *testing.T) {
 	if err := contract.Validate("payload", s); err != nil {
 		t.Fatal(err)
 	}
-	if len(s.Storage) != 1 || rd.Deref(s.Storage[0].Model) != "Apple Virtio Block Device" || rd.Deref(s.Storage[0].BusType) != "Virtio" || s.Storage[0].IsIntegrated {
-		t.Fatalf("unexpected storage %+v", s.Storage)
+	if len(s.Storage) != 2 || s.Storage[0].Model != nil || !*s.Storage[0].IsInternal || rd.Deref(s.Storage[0].MediaType) != "ssd" {
+		t.Fatalf("expected the internal disk first, then the USB drive: %+v", s.Storage)
+	}
+	if rd.Deref(s.Storage[1].Model) != "SanDisk Extreme" || *s.Storage[1].IsInternal {
+		t.Fatalf("unexpected second disk %+v", s.Storage[1])
+	}
+	var mounts []string
+	for _, v := range s.Volumes {
+		mounts = append(mounts, v.MountPoint)
+	}
+	if strings.Join(mounts, ",") != "/,/Volumes/Backup" {
+		t.Fatalf("unexpected volumes %v", mounts)
 	}
 }

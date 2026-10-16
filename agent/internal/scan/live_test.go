@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/sealis04/pc_reader/agent/internal/contract"
@@ -37,8 +38,24 @@ func TestLiveScan(t *testing.T) {
 	if err := contract.Validate("payload", s); err != nil {
 		t.Fatalf("live payload does not match the schema: %v", err)
 	}
-	if len(s.CPUs) == 0 || s.Memory.TotalBytes == nil || len(s.Storage) == 0 {
-		t.Fatalf("live scan is missing basics: cpus=%d memory=%v storage=%d", len(s.CPUs), s.Memory.TotalBytes, len(s.Storage))
+	if len(s.CPUs) == 0 || s.Memory.TotalBytes == nil || len(s.Volumes) == 0 {
+		t.Fatalf("live scan is missing basics: cpus=%d memory=%v volumes=%d", len(s.CPUs), s.Memory.TotalBytes, len(s.Volumes))
+	}
+	internal := 0
+	for _, d := range s.Storage {
+		if d.IsInternal != nil && *d.IsInternal {
+			internal++
+		}
+	}
+	if internal == 0 {
+		t.Fatalf("no internal disk found: %+v", s.Storage)
+	}
+	for _, m := range s.Memory.Modules {
+		for _, v := range []*string{m.PartNumber, m.SerialNumber} {
+			if v != nil && strings.EqualFold(*v, "none") {
+				t.Fatalf("placeholder %q left in memory module %+v", *v, m)
+			}
+		}
 	}
 	t.Logf("%s %s, %d CPU, %d disks, %d adapters", s.System.Hostname, s.OSType, len(s.CPUs), len(s.Storage), len(s.Network.Adapters))
 }

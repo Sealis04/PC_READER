@@ -83,3 +83,17 @@ func TestMissingComputerSystemIsAnError(t *testing.T) {
 		t.Fatal("expected an error")
 	}
 }
+
+// Values seen on a GitHub-hosted Windows runner (Hyper-V): "None" part and serial numbers, no speed.
+func TestHyperVMemoryPlaceholders(t *testing.T) {
+	raw := loadRaw(t)
+	raw["Win32_PhysicalMemory.json"] = []byte(`[{"DeviceLocator":"M0001","BankLabel":"None","Manufacturer":"Microsoft Corporation","Capacity":1073741824,"Speed":null,"ConfiguredClockSpeed":0,"PartNumber":"None","SerialNumber":"None"}]`)
+	s, err := Parse(raw, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := s.Memory.Modules[0]
+	if m.PartNumber != nil || m.SerialNumber != nil || m.SpeedMHz != nil || rd.Deref(m.Manufacturer) != "Microsoft Corporation" {
+		t.Fatalf("unexpected module %+v", m)
+	}
+}
