@@ -1,8 +1,7 @@
-//go:build desktop
-
 // Command pcreader-desktop is the PC_READER window: IT setup, signup, "My computer" and
-// "Update my details". It needs the Wails toolchain and the OS webview, so it is built only
-// with `wails build` (which sets -tags desktop); the logic it calls is in ./bound.
+// "Update my details". This directory is its own Go module (see go.mod) so that Wails'
+// bindings generator, which compiles the package without any build tags, can build it; a
+// build tag would hide main.go from it. The logic the window calls is in ../internal/bound.
 package main
 
 import (
@@ -14,8 +13,8 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options/mac"
 	"github.com/wailsapp/wails/v2/pkg/options/windows"
 
-	"github.com/sealis04/pc_reader/agent/desktop/bound"
 	"github.com/sealis04/pc_reader/agent/internal/app"
+	"github.com/sealis04/pc_reader/agent/internal/bound"
 )
 
 //go:embed all:frontend/dist

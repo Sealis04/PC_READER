@@ -6,7 +6,7 @@ Internal device-inventory tool. A Go reporter CLI on agency Windows/Mac PCs send
 
 - `contracts/` — JSON Schemas (scan payload v1, agent API requests/responses), Ajv validators and TS types (`@pcreader/contracts`), plus fixtures. **Source of truth for server and agent.** Changing a schema needs a note in INBOX.md and updated fixtures.
 - `server/` — Next.js App Router (`@pcreader/server`). Agent API (`register`, `scans`, `PUT user`) in `src/app/api/agent/*/route.ts`, which delegate to testable handlers in `src/lib/agent/`. Drizzle schema in `src/db/schema.ts`, migrations in `server/drizzle/`.
-- `agent/` — Go agent: CLI `pcreader` and Wails desktop app `pcreader-desktop` (module `github.com/sealis04/pc_reader/agent`). Both call the shared service layer `internal/app`; the desktop app is in `agent/desktop/` (`bound/` = unit-tested UI methods, `main.go` = Wails shell behind the `desktop` build tag, `frontend/` = Vite + plain JS). Collectors run OS commands (`internal/scan/{windows,darwin}/collect.go`); parsers are pure and fixture-tested (`parse.go`). See `agent/README.md`.
+- `agent/` — Go agent: CLI `pcreader` and Wails desktop app `pcreader-desktop` (modules `github.com/sealis04/pc_reader/agent`, plus `.../agent/desktop`). Both call the shared service layer `internal/app`; the desktop app is in `agent/desktop/` (`desktop/` is its own Go module (Wails' bindings generator compiles it without build tags) holding `main.go` and `frontend/`; the unit-tested UI methods are `internal/bound` = Vite + plain JS). Collectors run OS commands (`internal/scan/{windows,darwin}/collect.go`); parsers are pure and fixture-tested (`parse.go`). See `agent/README.md`.
 
 ## Commands (run from repo root unless noted)
 
@@ -17,7 +17,7 @@ Internal device-inventory tool. A Go reporter CLI on agency Windows/Mac PCs send
 - `cd server && bun run dev` — dev server on `0.0.0.0:3000` (needs `DATABASE_URL`, `ENROLLMENT_KEY`)
 - `cd server && bun run db:generate` — create a migration after editing `src/db/schema.ts` (never hand-edit generated SQL; CI fails if schema and migrations drift)
 - `cd server && bun run db:migrate` — apply migrations
-- `cd agent/desktop && wails build -platform windows/amd64 -tags desktop` — desktop app (Windows/macOS only; CI builds it on `windows-latest`/`macos-latest` as the `pcreader-desktop` artifact). On Linux only `GOOS=windows CGO_ENABLED=0 go vet -tags desktop ./desktop/` is possible; `go vet`/`go test ./...` skip the Wails shell.
+- `cd agent/desktop && wails build -platform windows/amd64` — desktop app (Windows/macOS only; CI builds it on `windows-latest`/`macos-latest` as the `pcreader-desktop` artifact). On Linux only `cd agent/desktop && GOOS=windows CGO_ENABLED=0 go vet ./` is possible; `go vet`/`go test ./...` in `agent/` skip the separate desktop module.
 - `docker compose up -d --build` — full local server (needs `.env`, see `.env.example`)
 
 ## Conventions

@@ -5,7 +5,6 @@
   "frontend:dir": "frontend",
   "frontend:install": "bun install --frozen-lockfile",
   "frontend:build": "bun run build",
-  "build:tags": "desktop",
   "info": {
     "companyName": "Intramuros Administration",
     "productName": "PC_READER",

@@ -32,13 +32,15 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: agent/go.mod
-          cache-dependency-path: agent/go.sum
+          cache-dependency-path: |
+            agent/go.sum
+            agent/desktop/go.sum
       - name: gofmt
         run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
       - name: go vet (linux, windows, darwin)
         run: go vet ./... && GOOS=windows go vet ./... && GOOS=darwin go vet ./...
-      - name: go vet desktop shell (windows; the Wails shell is behind the desktop tag)
-        run: GOOS=windows CGO_ENABLED=0 go vet -tags desktop ./desktop/
+      - name: go vet desktop shell (own module; windows only, it needs the OS webview toolchain)
+        run: cd desktop && GOOS=windows CGO_ENABLED=0 go vet ./
       - run: go test -count=1 ./...
 
       # End-to-end: real server + database, agent CLI registers and uploads the raw fixtures.
@@ -148,7 +150,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: agent/go.mod
-          cache-dependency-path: agent/go.sum
+          cache-dependency-path: agent/desktop/go.sum
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.2
@@ -156,7 +158,7 @@ jobs:
         run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.10.2
       - name: Build
         run: |
-          wails build -clean -platform ${{ matrix.platform }} -tags desktop \
+          wails build -clean -platform ${{ matrix.platform }} \
             -ldflags "-X main.version=0.2.0+${GITHUB_SHA::7}"
           ls -lR build/bin
       - name: Package (Windows)
