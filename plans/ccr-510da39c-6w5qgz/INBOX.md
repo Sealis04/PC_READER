@@ -20,6 +20,23 @@ See the repo `CLAUDE.md`. In short: bun + Drizzle (no Prisma, no `db:push`/`db:g
 
 ---
 
+## builder-1 — QUEUED: round 4 (start only when the planner fires you for it)
+
+Base: the PR from round 3 (supersedes #2). Requested by the user after testing on a real PC.
+
+**IT settings with a PIN.**
+1. **IT setup asks for a PIN.** Add an "IT PIN" (4–8 digits, entered twice) to the IT setup screen. Store only a salted, slow hash in `config.json` (e.g. `golang.org/x/crypto/scrypt` or PBKDF2-SHA256 with ≥100k iterations, random 16-byte salt). Never store or log the PIN itself.
+2. **When IT setup shows:** whenever no IT PIN is stored, not only when the computer is unregistered. On an already-registered computer (e.g. registered with the CLI), IT setup prefills the saved server URL, asks only for the server URL and the PIN (no enrollment key or signup, because the device stays registered), checks the connection, saves, and goes to "My computer".
+3. **"IT settings" link** (small, at the bottom of "My computer"): asks for the PIN. After 5 wrong attempts, lock for 60 seconds (state in memory is enough). When unlocked: edit the server URL with "Check connection" and save; "Re-register this computer" (back to IT setup with enrollment key + signup, keeping the PIN); "Change PIN".
+4. Users see neither the enrollment key nor the address editor without the PIN.
+5. Tests for the bound methods: PIN set/verify, wrong-PIN lockout, setup-shown-when-no-PIN on a registered config, server URL change, and that the PIN never appears in `config.json` in plain text.
+
+**Done when:** CI is green on your PR (desktop jobs included).
+
+**Branching:** reset your assigned branch onto the round-3 PR's branch, implement, push, and open a new PR into `ccr-510da39c-6w5qgz` that supersedes it. Do not fire the reviewer.
+
+---
+
 ## builder-1 — FIX REQUEST (2026-10-19, round 3)
 
 Base: PR #2 (`claude/cool-volta-w8ogw1`, CI green). Round 2 (desktop builds) is done.

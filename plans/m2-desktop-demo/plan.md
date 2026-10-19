@@ -21,6 +21,7 @@ Show the desktop app working on a few Windows PCs and Macs: IT enters the server
 | Update my details | Included. New endpoint `PUT /api/agent/user` |
 | Report now | Button on the specs screen: scan + upload, shows result |
 | Desktop framework | Wails v2 (Go + HTML/JS), as in the spec. Frontend: plain HTML/CSS/JS via Vite, built with bun |
+| IT settings | Added 2026-10-19: IT PIN set during IT setup (salted hash only); IT setup appears whenever no PIN is stored (also on CLI-registered PCs); PIN-locked "IT settings" to change the server address, re-register or change the PIN |
 | Builders | Builder 1 only; no reviewer routine. The planner checks the PR and CI, and the user reviews and merges |
 
 ## Work breakdown (Builder 1, in this order)
