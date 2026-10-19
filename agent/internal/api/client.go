@@ -193,6 +193,24 @@ func (c *Client) CompleteRequest(ctx context.Context, token, id string, res payl
 	return err
 }
 
+// UnlockSettings asks the server whether pin is the current IT PIN. It returns nil only for a yes. A
+// wrong PIN is an *Error with Status 403 and Code "wrong_pin"; too many tries is Status 429;
+// ErrUnauthorized means the server rejected the device token. Anything else (no reply, 5xx) means the
+// server could not answer, which the caller treats as offline. It never retries, so a PC that cannot
+// reach the server finds out quickly.
+func (c *Client) UnlockSettings(ctx context.Context, token, pin string) error {
+	once := *c
+	once.Backoff = nil
+	var out payload.SettingsUnlockResponse
+	if _, err := once.do(ctx, http.MethodPost, "/api/agent/settings-unlock", token, payload.SettingsUnlockRequest{PIN: pin}, &out, http.StatusOK); err != nil {
+		return err
+	}
+	if !out.OK {
+		return errors.New("unexpected response from server")
+	}
+	return nil
+}
+
 // Ping checks that the server answers, without retries: any 2xx or 3xx reply from the
 // dashboard's device list counts. It does not validate the enrollment key.
 func (c *Client) Ping(ctx context.Context) error {

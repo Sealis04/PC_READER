@@ -38,6 +38,7 @@ func load() {
 		"network":          "agent-api/network.request.schema.json",
 		"network-snapshot": "agent-api/network-snapshot.schema.json",
 		"logs":             "agent-api/logs.request.schema.json",
+		"settings-unlock":  "agent-api/settings-unlock.request.schema.json",
 		"request-complete": "agent-api/request-complete.request.schema.json",
 		"events-message":   "agent-api/events.message.schema.json",
 	}

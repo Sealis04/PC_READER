@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sealis04/pc_reader/agent/internal/contract"
 	"github.com/sealis04/pc_reader/agent/internal/payload"
 )
 
@@ -123,5 +125,50 @@ func TestPing(t *testing.T) {
 	var apiErr *Error
 	if err := c.Ping(context.Background()); !errors.As(err, &apiErr) || apiErr.Status != 404 || *calls != 1 {
 		t.Fatalf("err %v calls %d", err, *calls)
+	}
+}
+
+func TestUnlockSettingsAnswers(t *testing.T) {
+	c, calls := client(t, func(w http.ResponseWriter, r *http.Request) {
+		var req payload.SettingsUnlockRequest
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		if err := contract.Validate("settings-unlock", req); err != nil {
+			t.Errorf("request does not match the contract: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if r.Header.Get("Authorization") != "Bearer tok" {
+			w.WriteHeader(401)
+			return
+		}
+		if req.PIN != "123456" {
+			w.WriteHeader(403)
+			_, _ = w.Write([]byte(`{"error":"wrong_pin","message":"nope"}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	})
+	ctx := context.Background()
+	if err := c.UnlockSettings(ctx, "tok", "123456"); err != nil {
+		t.Fatal(err)
+	}
+	var apiErr *Error
+	if err := c.UnlockSettings(ctx, "tok", "000000"); !errors.As(err, &apiErr) || apiErr.Status != 403 || apiErr.Code != "wrong_pin" {
+		t.Fatalf("wrong PIN: %v", err)
+	}
+	if err := c.UnlockSettings(ctx, "bad", "123456"); !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("bad token: %v", err)
+	}
+	if *calls != 3 {
+		t.Fatalf("calls = %d, want one each", *calls)
+	}
+}
+
+func TestUnlockSettingsDoesNotRetry(t *testing.T) {
+	for _, status := range []int{429, 503} {
+		c, calls := client(t, reply(status, `{"error":"x"}`))
+		var apiErr *Error
+		if err := c.UnlockSettings(context.Background(), "tok", "123456"); !errors.As(err, &apiErr) || apiErr.Status != status || *calls != 1 {
+			t.Fatalf("status %d: err %v, calls %d", status, err, *calls)
+		}
 	}
 }

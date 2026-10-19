@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"net/mail"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -24,10 +25,19 @@ import (
 // DisplayTimezone formats times shown in the window, like the dashboard's DISPLAY_TIMEZONE.
 const DisplayTimezone = "Asia/Manila"
 
-// PIN lockout: after maxPinFailures wrong PINs in a row, every PIN check is refused for pinLockout.
+// Unlock lockout: after maxPinFailures wrong PINs (or enrollment keys) in a row, every unlock attempt is
+// refused for pinLockout. The server also rate-limits wrong PINs per device.
 const (
 	maxPinFailures = 5
 	pinLockout     = 60 * time.Second
+	// unlockTimeout is how long the server gets to answer before Settings falls back to the enrollment key.
+	unlockTimeout = 8 * time.Second
+)
+
+// Unlock modes: what the Settings prompt asks for.
+const (
+	modePin = "pin" // the hourly IT PIN from the dashboard, checked by the server
+	modeKey = "key" // the enrollment key, checked against the hash saved at IT setup
 )
 
 const reregisterMessage = "The server no longer recognises this computer. Ask IT for the enrollment key and register again."
@@ -38,13 +48,13 @@ type App struct {
 	version string
 	ctx     context.Context
 
-	mu            sync.Mutex      // guards the in-memory setup state below
-	pendingServer string          // set by CheckConnection, used by Signup
-	pendingKey    string          // held in memory only until signup; never written to disk
-	pendingPin    *config.PinHash // new PIN hash, written to config.json once signup succeeds
+	mu            sync.Mutex // guards the in-memory setup state below
+	pendingServer string     // set by CheckConnection, used by Signup
+	pendingKey    string     // held in memory only until signup (then only its hash is saved)
 	reregistering bool
-	unlocked      bool      // IT settings are open (the right PIN was entered since the window started)
-	pinFailures   int       // consecutive wrong PINs
+	keyReason     string    // "offline" or "rejected" once Settings asks for the enrollment key instead of the PIN
+	unlocked      bool      // IT settings are open (the right PIN or key was entered since the window started)
+	pinFailures   int       // consecutive wrong PINs or keys
 	lockedUntil   time.Time // PIN checks refused until then
 	now           func() time.Time
 
@@ -135,20 +145,13 @@ type State struct {
 	Notice    string    `json:"notice"`
 	ServerURL string    `json:"serverUrl"`
 	User      *UserForm `json:"user"` // prefill for signup when registering again
-	// NeedKey: the setup screen asks for the enrollment key (false on an already-registered
-	// computer, which stays registered).
-	NeedKey bool `json:"needKey"`
-	// NeedPin is what the setup screen asks for: "create" (PIN entered twice), "verify" (the
-	// existing PIN) or "" (IT already proved the PIN in IT settings).
-	NeedPin string `json:"needPin"`
 }
 
-// State is also where IT setup is decided: it shows whenever no IT PIN is stored, including
-// on a computer registered with the command-line tool.
+// State is also where IT setup is decided: it shows on a computer that is not registered yet, and again
+// when IT starts re-registration from Settings. A registered computer always opens home.
 func (a *App) State() State {
 	st := State{Version: a.version, Notice: app.Notice}
 	status, err := a.svc.Status()
-	hasPin := err == nil && status.ITPin != nil
 	if err == nil {
 		st.ServerURL = status.ServerURL
 		if status.User != nil {
@@ -158,34 +161,23 @@ func (a *App) State() State {
 	a.mu.Lock()
 	pending := a.pendingServer
 	a.mu.Unlock()
-	needKey, needPin := a.setupNeeds(err == nil && status.Registered, hasPin)
 	switch {
-	case !needKey && hasPin:
+	case !a.needsKey(err == nil && status.Registered):
 		st.Screen = "home"
-	case !needKey:
-		st.Screen, st.NeedPin = "setup", needPin
 	case pending != "":
 		st.Screen, st.ServerURL = "signup", pending
 	default:
-		st.Screen, st.NeedKey, st.NeedPin = "setup", true, needPin
+		st.Screen = "setup"
 	}
 	return st
 }
 
-// setupNeeds says what IT setup asks for: the enrollment key unless the computer is registered
-// (and not being registered again), and the PIN: "create" when none is stored, "verify" when
-// one is stored but IT settings are not unlocked, "" otherwise.
-func (a *App) setupNeeds(registered, hasPin bool) (needKey bool, needPin string) {
+// needsKey says whether the setup screen asks for the enrollment key: on a computer that is not
+// registered, or one being registered again.
+func (a *App) needsKey(registered bool) bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	needKey = !registered || a.reregistering
-	switch {
-	case !hasPin:
-		needPin = "create"
-	case needKey && !a.unlocked:
-		needPin = "verify"
-	}
-	return needKey, needPin
+	return !registered || a.reregistering
 }
 
 // Result is the common outcome of an action.
@@ -200,46 +192,19 @@ type Result struct {
 
 func fail(msg string) Result { return Result{Message: msg} }
 
-// CheckConnection is the IT setup step. It checks the PIN (a new one is entered twice; an
-// existing one must be right unless IT settings are already unlocked) and the server, and
-// then either saves the address and PIN (an already-registered computer, which stays
-// registered) or keeps the address, key and new PIN hash in memory for the signup that
-// follows. The enrollment key is verified at signup and never written to disk.
-func (a *App) CheckConnection(serverURL, key, pin, pinAgain string) Result {
+// CheckConnection is the IT setup step. It checks the server address and keeps the address and the
+// enrollment key in memory for the signup that follows. The key is verified at signup; only its salted
+// hash is saved (so Settings can open when the server is unreachable), never the key itself.
+func (a *App) CheckConnection(serverURL, key string) Result {
 	status, serr := a.svc.Status()
 	if serr != nil {
 		return fail("Could not read this computer's saved settings: " + serr.Error())
 	}
-	hasPin := status.ITPin != nil
-	needKey, needPin := a.setupNeeds(status.Registered, hasPin)
-	if !needKey && hasPin {
+	if !a.needsKey(status.Registered) {
 		return fail("IT setup is already done on this computer. Use Settings.")
 	}
-	errs := map[string]string{}
-	if needKey && strings.TrimSpace(key) == "" {
-		errs["key"] = "Required"
-	}
-	var newHash *config.PinHash
-	switch needPin {
-	case "create":
-		switch {
-		case !config.ValidPin(pin):
-			errs["pin"] = "Use 4 to 8 digits"
-		case pin != pinAgain:
-			errs["pinAgain"] = "The two PINs are not the same"
-		}
-	case "verify":
-		if res := a.checkPin(pin); !res.OK {
-			res.FieldErrors = map[string]string{"pin": res.Message}
-			return res
-		}
-	}
-	if len(errs) > 0 {
-		msg := "Please fix the highlighted fields."
-		if errs["key"] != "" && len(errs) == 1 {
-			msg = "Enter the enrollment key from IT."
-		}
-		return Result{Message: msg, FieldErrors: errs}
+	if strings.TrimSpace(key) == "" {
+		return Result{Message: "Enter the enrollment key from IT.", FieldErrors: map[string]string{"key": "Required"}}
 	}
 	ctx, cancel := context.WithTimeout(a.ctx, 20*time.Second)
 	defer cancel()
@@ -247,28 +212,8 @@ func (a *App) CheckConnection(serverURL, key, pin, pinAgain string) Result {
 	if err != nil {
 		return a.connectionFailure(err, serverURL)
 	}
-	if needPin == "create" {
-		var herr error
-		if newHash, herr = config.NewPinHash(pin); herr != nil {
-			return fail("The PIN could not be saved: " + herr.Error())
-		}
-	}
-	if !needKey {
-		// Registered computer: just the address and the PIN.
-		if err := a.svc.SetServerURL(u); err != nil {
-			return fail("The server address could not be saved: " + err.Error())
-		}
-		if err := a.svc.SetITPin(newHash); err != nil {
-			return fail("The PIN could not be saved: " + err.Error())
-		}
-		a.mu.Lock()
-		a.unlocked = false
-		a.mu.Unlock()
-		a.ready()
-		return Result{OK: true, Message: "Saved. Connected to " + u + "."}
-	}
 	a.mu.Lock()
-	a.pendingServer, a.pendingKey, a.pendingPin = u, strings.TrimSpace(key), newHash
+	a.pendingServer, a.pendingKey = u, strings.TrimSpace(key)
 	a.mu.Unlock()
 	return Result{OK: true, Message: "Connected to " + u + "."}
 }
@@ -285,51 +230,152 @@ func (a *App) connectionFailure(err error, serverURL string) Result {
 	return res
 }
 
-// checkPin verifies the stored IT PIN, counting wrong attempts: five in a row lock every PIN
-// check for 60 seconds (in memory, so closing the window resets it).
-func (a *App) checkPin(pin string) Result {
-	status, err := a.svc.Status()
-	if err != nil {
-		return fail("Could not read this computer's saved settings: " + err.Error())
-	}
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if left := a.lockedUntil.Sub(a.now()); left > 0 {
-		secs := int(left/time.Second) + 1
-		return fail(fmt.Sprintf("Too many wrong PINs. Try again in %d seconds.", secs))
-	}
-	if status.ITPin == nil {
-		return fail("No IT PIN is set on this computer yet.")
-	}
-	if !status.ITPin.Verify(pin) {
-		a.pinFailures++
-		if a.pinFailures >= maxPinFailures {
-			a.pinFailures, a.lockedUntil = 0, a.now().Add(pinLockout)
-			return fail(fmt.Sprintf("Too many wrong PINs. Try again in %d seconds.", int(pinLockout/time.Second)))
-		}
-		return fail(fmt.Sprintf("That PIN is not correct. %d tries left.", maxPinFailures-a.pinFailures))
-	}
-	a.pinFailures = 0
-	return Result{OK: true}
+// UnlockPrompt tells the Settings prompt what to ask for.
+type UnlockPrompt struct {
+	Mode    string `json:"mode"` // "pin" or "key"
+	Message string `json:"message"`
 }
 
-// UnlockITSettings opens the IT settings for this window session when the PIN is right.
-func (a *App) UnlockITSettings(pin string) Result {
-	res := a.checkPin(pin)
-	if res.OK {
-		a.mu.Lock()
-		a.unlocked = true
-		a.mu.Unlock()
-		return Result{OK: true}
+const (
+	pinPromptMessage        = "Enter the IT PIN shown on the PC_READER dashboard."
+	offlinePromptMessage    = "Can't reach the server. Enter the enrollment key to change the server address."
+	reregisterPromptMessage = "The server no longer recognises this computer. Enter the enrollment key to register it again."
+)
+
+// UnlockMode is what the Settings prompt asks for: the IT PIN, unless this computer has no usable
+// registration with the server (it was rejected, or the token is gone), where the PIN could never be
+// checked, or the server just failed to answer. Then the enrollment key (needed to register again
+// anyway, and saved as a hash at IT setup) is asked for instead.
+func (a *App) UnlockMode() UnlockPrompt {
+	st, err := a.svc.Status()
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	reason := a.keyReason
+	if a.connStatus == "reregister" || (err == nil && st.Registered && st.TokenErr != nil) {
+		reason = reasonRejected
 	}
-	res.FieldErrors = map[string]string{"pin": res.Message}
+	switch reason {
+	case reasonRejected:
+		return UnlockPrompt{Mode: modeKey, Message: reregisterPromptMessage}
+	case reasonOffline:
+		return UnlockPrompt{Mode: modeKey, Message: offlinePromptMessage}
+	}
+	return UnlockPrompt{Mode: modePin, Message: pinPromptMessage}
+}
+
+const (
+	reasonOffline  = "offline"
+	reasonRejected = "rejected"
+)
+
+// UnlockResult is the outcome of an unlock attempt; Mode is what to ask for next.
+type UnlockResult struct {
+	Result
+	Mode string `json:"mode"`
+}
+
+// UnlockITSettings opens the IT settings for this window session. In "pin" mode the typed PIN goes to the
+// server, which checks it against the current hourly PIN; when the server cannot answer (no reply, a
+// timeout or a 5xx) the prompt switches to "key" mode, where the enrollment key is checked against the
+// hash saved at IT setup. Five wrong tries in a row, counted across both modes, lock every attempt for
+// 60 seconds (in memory, so closing the window resets it).
+func (a *App) UnlockITSettings(secret string) UnlockResult {
+	a.mu.Lock()
+	if left := a.lockedUntil.Sub(a.now()); left > 0 {
+		a.mu.Unlock()
+		return a.unlockFail(a.UnlockMode().Mode, fmt.Sprintf("Too many wrong tries. Try again in %d seconds.", int(left/time.Second)+1))
+	}
+	a.mu.Unlock()
+
+	mode := a.UnlockMode()
+	if mode.Mode == modeKey {
+		return a.unlockWithKey(secret)
+	}
+	pin := strings.TrimSpace(secret)
+	if !pinFormat.MatchString(pin) {
+		return a.unlockFail(modePin, "The IT PIN is 6 digits.")
+	}
+	ctx, cancel := context.WithTimeout(a.ctx, unlockTimeout)
+	defer cancel()
+	err := a.svc.UnlockSettings(ctx, pin)
+	var apiErr *api.Error
+	switch {
+	case err == nil:
+		return a.unlockOK()
+	case errors.Is(err, api.ErrUnauthorized), errors.Is(err, app.ErrNotRegistered), errors.Is(err, config.ErrNoToken):
+		return a.switchToKey(reasonRejected, reregisterPromptMessage)
+	case errors.As(err, &apiErr) && apiErr.Status == 403:
+		return a.countWrong(modePin, "That PIN is not correct.")
+	case errors.As(err, &apiErr) && apiErr.Status == 429:
+		return a.unlockFail(modePin, "Too many wrong PINs. Try again in a minute.")
+	case errors.As(err, &apiErr) && apiErr.Status < 500:
+		// The server answered but not as a PC_READER server would; asking for the key will not help.
+		return a.unlockFail(modePin, "The server did not accept the request: "+apiErr.Message)
+	}
+	// No reply, a timeout or a 5xx: the server cannot check the PIN.
+	return a.switchToKey(reasonOffline, offlinePromptMessage)
+}
+
+var pinFormat = regexp.MustCompile(`^[0-9]{6}$`)
+
+func (a *App) unlockFail(mode, msg string) UnlockResult {
+	return UnlockResult{Result: Result{Message: msg, FieldErrors: map[string]string{"pin": msg}}, Mode: mode}
+}
+
+func (a *App) unlockOK() UnlockResult {
+	a.mu.Lock()
+	a.unlocked, a.pinFailures, a.keyReason = true, 0, ""
+	a.mu.Unlock()
+	return UnlockResult{Result: Result{OK: true}, Mode: modePin}
+}
+
+// countWrong counts a wrong PIN or key; the fifth in a row starts the lockout.
+func (a *App) countWrong(mode, msg string) UnlockResult {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.pinFailures++
+	if a.pinFailures >= maxPinFailures {
+		a.pinFailures, a.lockedUntil = 0, a.now().Add(pinLockout)
+		return a.unlockFail(mode, fmt.Sprintf("Too many wrong tries. Try again in %d seconds.", int(pinLockout/time.Second)))
+	}
+	return a.unlockFail(mode, fmt.Sprintf("%s %d tries left.", msg, maxPinFailures-a.pinFailures))
+}
+
+// switchToKey makes the prompt ask for the enrollment key (the server could not check the PIN).
+func (a *App) switchToKey(reason, msg string) UnlockResult {
+	a.mu.Lock()
+	a.keyReason = reason
+	a.mu.Unlock()
+	return UnlockResult{Result: Result{Message: msg}, Mode: modeKey}
+}
+
+// unlockWithKey checks the typed enrollment key against the saved hash. A computer without a saved
+// hash cannot unlock this way; that is said plainly and does not count as a wrong try.
+func (a *App) unlockWithKey(key string) UnlockResult {
+	st, err := a.svc.Status()
+	if err != nil {
+		return a.unlockFail(modeKey, "Could not read this computer's saved settings: "+err.Error())
+	}
+	if st.EnrollmentKeyHash == nil {
+		return a.unlockFail(modeKey, "This computer has no saved enrollment key, so Settings cannot be opened while the server is unreachable. Connect to the agency network and use the IT PIN, or ask IT to run IT setup again.")
+	}
+	if !st.EnrollmentKeyHash.Verify(key) {
+		return a.countWrong(modeKey, "That enrollment key is not correct.")
+	}
+	why := "the server was unreachable"
+	if a.UnlockMode().Message == reregisterPromptMessage {
+		why = "the server did not recognise this computer"
+	}
+	a.svc.LogEvent("warning", "system", "IT settings were opened with the enrollment key ("+why+")")
+	res := a.unlockOK()
+	res.Mode = modeKey
 	return res
 }
 
-// LockITSettings closes the IT settings again.
+// LockITSettings closes the IT settings again (and abandons a re-registration in progress).
 func (a *App) LockITSettings() {
 	a.mu.Lock()
-	a.unlocked = false
+	a.unlocked, a.reregistering, a.pendingServer, a.pendingKey, a.keyReason = false, false, "", "", ""
 	a.mu.Unlock()
 }
 
@@ -378,13 +424,13 @@ func (a *App) SaveServerURL(serverURL string) Result {
 	return Result{OK: true, Message: "Saved. Connected to " + u + "."}
 }
 
-// StartReregistration returns to the IT setup screen (enrollment key and signup, keeping the
-// PIN), with the saved details as the signup prefill. It needs the PIN entered first. The PIN
-// is set once during IT setup and cannot be changed from the app.
+// StartReregistration returns to the IT setup screen (enrollment key and signup), with the saved
+// details as the signup prefill. It needs Settings unlocked first (with the enrollment key when the
+// server rejected this computer).
 func (a *App) StartReregistration() State {
 	a.mu.Lock()
 	if a.unlocked {
-		a.reregistering, a.pendingServer, a.pendingKey, a.pendingPin = true, "", "", nil
+		a.reregistering, a.pendingServer, a.pendingKey = true, "", ""
 	}
 	a.mu.Unlock()
 	return a.State()
@@ -396,7 +442,7 @@ func (a *App) Signup(f UserForm) Result {
 		return Result{Message: "Please fix the highlighted fields.", FieldErrors: errs}
 	}
 	a.mu.Lock()
-	server, key, newPin := a.pendingServer, a.pendingKey, a.pendingPin
+	server, key := a.pendingServer, a.pendingKey
 	a.mu.Unlock()
 	if server == "" || key == "" {
 		return fail("The server is not set up yet. Go back to the IT setup step.")
@@ -411,13 +457,14 @@ func (a *App) Signup(f UserForm) Result {
 		return signupFailure(err, server)
 	}
 	out := Result{OK: true, Message: "Registered " + res.Hostname + "."}
-	if newPin != nil {
-		if err := a.svc.SetITPin(newPin); err != nil {
-			out.Message += " The IT PIN could not be saved (" + err.Error() + "); IT setup will ask for it again."
-		}
+	// Keep a salted hash of the key so Settings can open while the server is unreachable.
+	if h, err := config.NewSecretHash(key); err != nil {
+		out.Message += " The enrollment key could not be saved (" + err.Error() + "); Settings will need the server to open."
+	} else if err := a.svc.SetEnrollmentKeyHash(h); err != nil {
+		out.Message += " The enrollment key could not be saved (" + err.Error() + "); Settings will need the server to open."
 	}
 	a.mu.Lock()
-	a.pendingServer, a.pendingKey, a.pendingPin, a.reregistering, a.unlocked = "", "", nil, false, false
+	a.pendingServer, a.pendingKey, a.reregistering, a.unlocked, a.keyReason = "", "", false, false, ""
 	a.mu.Unlock()
 	a.ready()
 	if res.UploadErr != nil {

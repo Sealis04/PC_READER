@@ -317,8 +317,9 @@ type Status struct {
 	LastPayload  *payload.Scan
 	// TokenErr is non-nil when the registration has no usable token stored.
 	TokenErr error
-	// ITPin is the stored hash of the IT PIN, nil until IT sets one (also when unregistered).
-	ITPin *config.PinHash
+	// EnrollmentKeyHash is the stored hash of the enrollment key, nil until IT setup or re-registration
+	// saves it (CLI-registered computers have none). It unlocks Settings while the server is unreachable.
+	EnrollmentKeyHash *config.SecretHash
 }
 
 // Status reads config.json and checks that the token is present.
@@ -328,7 +329,7 @@ func (s *Service) Status() (*Status, error) {
 		return nil, err
 	}
 	dir, _ := config.Dir()
-	st := &Status{Dir: dir, Registered: cfg.DeviceID != "", ITPin: cfg.ITPin}
+	st := &Status{Dir: dir, Registered: cfg.DeviceID != "", EnrollmentKeyHash: cfg.EnrollmentKeyHash}
 	if !st.Registered {
 		return st, nil
 	}
@@ -338,18 +339,32 @@ func (s *Service) Status() (*Status, error) {
 	return st, nil
 }
 
-// SetITPin stores the hash of the IT PIN (nil is not allowed).
-func (s *Service) SetITPin(h *config.PinHash) error {
+// SetEnrollmentKeyHash stores the hash of the enrollment key (nil is not allowed).
+func (s *Service) SetEnrollmentKeyHash(h *config.SecretHash) error {
 	if h == nil {
-		return errors.New("no PIN hash given")
+		return errors.New("no enrollment key hash given")
 	}
 	cfg, err := config.Load()
 	if err != nil {
 		return err
 	}
-	cfg.ITPin = h
+	cfg.EnrollmentKeyHash = h
 	return cfg.Save()
 }
+
+// UnlockSettings asks the server whether pin is the current IT PIN (see api.Client.UnlockSettings for the
+// errors). A computer with no usable registration cannot ask: that error is returned as is.
+func (s *Service) UnlockSettings(ctx context.Context, pin string) error {
+	client, token, err := s.APIClient()
+	if err != nil {
+		return err
+	}
+	return client.UnlockSettings(ctx, token, pin)
+}
+
+// LogEvent records an entry in the local log (uploaded with the next "Send logs"). Messages must never
+// carry tokens, PINs, keys or personal details.
+func (s *Service) LogEvent(level, category, message string) { s.logf(level, category, "%s", message) }
 
 // SetServerURL saves a new server address for an already-registered computer. It does not
 // contact the server; callers check the connection first.

@@ -182,8 +182,8 @@ func main() {
 			s.mu.Unlock()
 			s.app.Startup(ctx)
 			s.tray.Start()
-			// A computer that is already set up (registered, IT PIN stored) connects at once.
-			if st, err := svc.Status(); err == nil && st.Registered && st.ITPin != nil && st.TokenErr == nil {
+			// A computer that is already set up (registered) connects at once.
+			if st, err := svc.Status(); err == nil && st.Registered && st.TokenErr == nil {
 				s.ready()
 			}
 		},

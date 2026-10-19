@@ -208,6 +208,14 @@ type LogsResponse struct {
 	ReceivedIDs []int64 `json:"received_ids"`
 }
 
+type SettingsUnlockRequest struct {
+	PIN string `json:"pin"`
+}
+
+type SettingsUnlockResponse struct {
+	OK bool `json:"ok"`
+}
+
 // Request types a dashboard can queue (events.message).
 const (
 	RequestScanNow             = "scan_now"

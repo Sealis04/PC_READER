@@ -25,15 +25,18 @@ type fake struct {
 	registerBody string // overrides the register reply (status 400) when set
 	registerCode int
 	updates      []payload.UserDetails
+	pin          string // the current IT PIN the fake server accepts
+	unlockStatus int    // overrides the settings-unlock reply (e.g. 500) when set
+	unlockCalls  int
 }
 
 func setup(t *testing.T) (*App, *fake) {
 	t.Helper()
 	t.Setenv("PCREADER_HOME", t.TempDir())
 	t.Setenv("PCREADER_TOKEN_STORE", "file")
-	config.PinIterations = 1000 // fast hashing in tests
-	t.Cleanup(func() { config.PinIterations = 600_000 })
-	f := &fake{}
+	config.HashIterations = 1000 // fast hashing in tests
+	t.Cleanup(func() { config.HashIterations = 600_000 })
+	f := &fake{pin: "482913"}
 	f.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
@@ -51,6 +54,20 @@ func setup(t *testing.T) (*App, *fake) {
 			} else {
 				w.WriteHeader(201)
 				_, _ = w.Write([]byte(`{"device_id":"dev-1","device_token":"tok-1","checkin_interval_seconds":300}`))
+			}
+		case r.URL.Path == "/api/agent/settings-unlock" && !f.unauthorized:
+			f.unlockCalls++
+			var req payload.SettingsUnlockRequest
+			_ = json.NewDecoder(r.Body).Decode(&req)
+			switch {
+			case f.unlockStatus != 0:
+				w.WriteHeader(f.unlockStatus)
+				_, _ = w.Write([]byte(`{"error":"server_error"}`))
+			case req.PIN == f.pin:
+				_, _ = w.Write([]byte(`{"ok":true}`))
+			default:
+				w.WriteHeader(403)
+				_, _ = w.Write([]byte(`{"error":"wrong_pin","message":"That PIN is not the current IT PIN"}`))
 			}
 		case f.unauthorized:
 			w.WriteHeader(401)
@@ -82,7 +99,7 @@ func form() UserForm {
 
 func register(t *testing.T, a *App, f *fake) {
 	t.Helper()
-	if res := a.CheckConnection(f.URL, "good-key", "1234", "1234"); !res.OK {
+	if res := a.CheckConnection(f.URL, "good-key"); !res.OK {
 		t.Fatalf("connection: %+v", res)
 	}
 	if res := a.Signup(form()); !res.OK {
@@ -95,13 +112,13 @@ func TestFirstLaunchFlowSetupSignupHome(t *testing.T) {
 	if st := a.State(); st.Screen != "setup" || st.Notice == "" {
 		t.Fatalf("state %+v", st)
 	}
-	if res := a.CheckConnection(f.URL, "  ", "1234", "1234"); res.OK || res.FieldErrors["key"] == "" {
+	if res := a.CheckConnection(f.URL, "  "); res.OK || res.FieldErrors["key"] == "" {
 		t.Fatalf("empty key accepted: %+v", res)
 	}
-	if res := a.CheckConnection("not a url", "k", "1234", "1234"); res.OK || res.FieldErrors["serverUrl"] == "" {
+	if res := a.CheckConnection("not a url", "k"); res.OK || res.FieldErrors["serverUrl"] == "" {
 		t.Fatalf("bad url accepted: %+v", res)
 	}
-	if res := a.CheckConnection(f.URL, "good-key", "1234", "1234"); !res.OK {
+	if res := a.CheckConnection(f.URL, "good-key"); !res.OK {
 		t.Fatalf("connection: %+v", res)
 	}
 	if st := a.State(); st.Screen != "signup" || st.ServerURL != f.URL {
@@ -134,7 +151,7 @@ func TestFirstLaunchFlowSetupSignupHome(t *testing.T) {
 
 func TestSignupValidatesBeforeContactingServer(t *testing.T) {
 	a, f := setup(t)
-	a.CheckConnection(f.URL, "good-key", "1234", "1234")
+	a.CheckConnection(f.URL, "good-key")
 	res := a.Signup(UserForm{Email: "nope"})
 	for _, k := range []string{"fullName", "employeeId", "department", "email", "policyAccepted"} {
 		if res.FieldErrors[k] == "" {
@@ -155,7 +172,7 @@ func TestSignupNeedsSetupFirst(t *testing.T) {
 
 func TestSignupWrongKeyAndUnreachableServerSpeakPlainly(t *testing.T) {
 	a, f := setup(t)
-	a.CheckConnection(f.URL, "wrong", "1234", "1234")
+	a.CheckConnection(f.URL, "wrong")
 	if res := a.Signup(form()); res.OK || !strings.Contains(res.Message, "enrollment key is not correct") {
 		t.Fatalf("%+v", res)
 	}
@@ -163,7 +180,7 @@ func TestSignupWrongKeyAndUnreachableServerSpeakPlainly(t *testing.T) {
 		t.Fatal("left signup after a wrong key")
 	}
 	f.Close()
-	if res := a.CheckConnection(f.URL, "k", "1234", "1234"); res.OK || !strings.Contains(res.Message, "Cannot reach the server at "+f.URL) || !strings.Contains(res.Message, "docker compose up -d") {
+	if res := a.CheckConnection(f.URL, "k"); res.OK || !strings.Contains(res.Message, "Cannot reach the server at "+f.URL) || !strings.Contains(res.Message, "docker compose up -d") {
 		t.Fatalf("%+v", res)
 	}
 }
@@ -171,7 +188,7 @@ func TestSignupWrongKeyAndUnreachableServerSpeakPlainly(t *testing.T) {
 func TestSignupMapsServerFieldErrors(t *testing.T) {
 	a, f := setup(t)
 	f.registerCode, f.registerBody = 400, `{"error":"invalid_payload","message":"bad","details":[{"path":"/user/email","message":"must match format \"email\""}]}`
-	a.CheckConnection(f.URL, "good-key", "1234", "1234")
+	a.CheckConnection(f.URL, "good-key")
 	res := a.Signup(form())
 	if res.OK || res.FieldErrors["email"] == "" {
 		t.Fatalf("%+v", res)
@@ -221,16 +238,16 @@ func TestReregistrationKeepsDetailsAsPrefill(t *testing.T) {
 	a, f := setup(t)
 	register(t, a, f)
 	if st := a.StartReregistration(); st.Screen != "home" {
-		t.Fatalf("re-registration opened without the PIN: %+v", st)
+		t.Fatalf("re-registration opened without unlocking Settings: %+v", st)
 	}
-	if res := a.UnlockITSettings("1234"); !res.OK {
+	if res := a.UnlockITSettings(f.pin); !res.OK {
 		t.Fatalf("%+v", res)
 	}
 	st := a.StartReregistration()
-	if st.NeedPin != "" || !st.NeedKey || st.Screen != "setup" || st.User == nil || st.User.EmployeeID != "EMP-1" || st.ServerURL != f.URL {
+	if st.Screen != "setup" || st.User == nil || st.User.EmployeeID != "EMP-1" || st.ServerURL != f.URL {
 		t.Fatalf("%+v", st)
 	}
-	a.CheckConnection(f.URL, "good-key", "", "")
+	a.CheckConnection(f.URL, "good-key")
 	if a.State().Screen != "signup" {
 		t.Fatal("not on signup")
 	}
@@ -247,8 +264,8 @@ func TestMachineRegisteredByCLIOpensHomeWithLocalScan(t *testing.T) {
 	if _, err := a.svc.Register(context.Background(), app.RegisterInput{ServerURL: f.URL, Key: "good-key", User: payload.UserDetails{FullName: "A", EmployeeID: "E", Department: "D"}}); err != nil {
 		t.Fatal(err)
 	}
-	if st := a.State(); st.Screen != "setup" || st.NeedKey || st.NeedPin != "create" || st.ServerURL != f.URL {
-		t.Fatalf("a registered computer without a PIN must show IT setup (server and PIN only): %+v", st)
+	if st := a.State(); st.Screen != "home" || st.ServerURL != f.URL {
+		t.Fatalf("a registered computer opens home, even without a saved enrollment key: %+v", st)
 	}
 	h := a.MyComputer()
 	if !h.OK || h.Reported || h.LastReportAt != "Never" || h.Summary.ComputerName == "" {
@@ -295,81 +312,58 @@ func configText(t *testing.T) string {
 	return string(raw)
 }
 
-func TestSetupCreatesPinAndStoresOnlyAHash(t *testing.T) {
+func TestSetupSavesOnlyAHashOfTheEnrollmentKey(t *testing.T) {
 	a, f := setup(t)
-	if st := a.State(); st.Screen != "setup" || !st.NeedKey || st.NeedPin != "create" {
+	if st := a.State(); st.Screen != "setup" {
 		t.Fatalf("%+v", st)
 	}
-	for _, c := range []struct{ pin, again, field string }{{"", "", "pin"}, {"12", "12", "pin"}, {"12ab", "12ab", "pin"}, {"123456789", "123456789", "pin"}, {"1234", "4321", "pinAgain"}} {
-		if res := a.CheckConnection(f.URL, "good-key", c.pin, c.again); res.OK || res.FieldErrors[c.field] == "" {
-			t.Errorf("PIN %q/%q accepted or wrong field: %+v", c.pin, c.again, res)
-		}
-	}
-	if a.State().Screen != "setup" {
-		t.Fatal("left setup with a bad PIN")
-	}
-	if res := a.CheckConnection(f.URL, "good-key", "482913", "482913"); !res.OK {
+	if res := a.CheckConnection(f.URL, "good-key"); !res.OK {
 		t.Fatalf("%+v", res)
 	}
 	if res := a.Signup(form()); !res.OK {
 		t.Fatalf("%+v", res)
 	}
-	txt := configText(t)
-	if strings.Contains(txt, "482913") || strings.Contains(txt, "good-key") {
-		t.Fatalf("PIN or key in config.json:\n%s", txt)
+	if txt := configText(t); strings.Contains(txt, "good-key") {
+		t.Fatalf("enrollment key in config.json:\n%s", txt)
 	}
 	cfg, _ := config.Load()
-	if cfg.ITPin == nil || !cfg.ITPin.Verify("482913") || cfg.ITPin.Verify("482914") {
-		t.Fatalf("stored PIN %+v", cfg.ITPin)
+	if cfg.EnrollmentKeyHash == nil || !cfg.EnrollmentKeyHash.Verify("good-key") || cfg.EnrollmentKeyHash.Verify("other-key") {
+		t.Fatalf("stored hash %+v", cfg.EnrollmentKeyHash)
 	}
 	if st := a.State(); st.Screen != "home" {
 		t.Fatalf("%+v", st)
 	}
 }
 
-func TestRegisteredComputerWithoutPinSetsPinKeepingRegistration(t *testing.T) {
+func TestSetupAsksForNoPin(t *testing.T) {
 	a, f := setup(t)
-	if _, err := a.svc.Register(context.Background(), app.RegisterInput{ServerURL: f.URL, Key: "good-key", User: payload.UserDetails{FullName: "A", EmployeeID: "E", Department: "D"}}); err != nil {
-		t.Fatal(err)
-	}
-	before, _ := config.Load()
-	// No enrollment key needed, but a PIN is.
-	if res := a.CheckConnection(f.URL, "", "", ""); res.OK || res.FieldErrors["pin"] == "" {
+	// The enrollment key and the address are all IT types; there are no PIN fields any more.
+	if res := a.CheckConnection(f.URL, "good-key"); !res.OK {
 		t.Fatalf("%+v", res)
 	}
-	if res := a.CheckConnection(f.URL, "", "2468", "2468"); !res.OK {
+	if res := a.Signup(form()); !res.OK {
 		t.Fatalf("%+v", res)
 	}
-	after, _ := config.Load()
-	if after.DeviceID != before.DeviceID || after.DeviceUUID != before.DeviceUUID || after.ITPin == nil || !after.ITPin.Verify("2468") {
-		t.Fatalf("registration changed or PIN not saved: %+v", after)
-	}
-	if st := a.State(); st.Screen != "home" {
-		t.Fatalf("%+v", st)
-	}
-	if res := a.CheckConnection(f.URL, "", "2468", "2468"); res.OK {
-		t.Fatal("setup ran again with a PIN stored")
+	if res := a.CheckConnection(f.URL, "good-key"); res.OK {
+		t.Fatal("setup ran again on a registered computer")
 	}
 }
 
-func TestSetupWithUnreachableServerDoesNotSavePin(t *testing.T) {
+func TestFailedSignupDoesNotSaveTheKeyHash(t *testing.T) {
 	a, f := setup(t)
-	if _, err := a.svc.Register(context.Background(), app.RegisterInput{ServerURL: f.URL, Key: "good-key", User: payload.UserDetails{FullName: "A", EmployeeID: "E", Department: "D"}}); err != nil {
-		t.Fatal(err)
-	}
-	f.Close()
-	if res := a.CheckConnection(f.URL, "", "2468", "2468"); res.OK {
+	a.CheckConnection(f.URL, "wrong-key")
+	if res := a.Signup(form()); res.OK {
 		t.Fatalf("%+v", res)
 	}
-	if cfg, _ := config.Load(); cfg.ITPin != nil {
-		t.Fatal("PIN saved although the connection check failed")
+	if cfg, _ := config.Load(); cfg.EnrollmentKeyHash != nil {
+		t.Fatal("key hash saved although registration failed")
 	}
 }
 
 func registeredWithPin(t *testing.T) (*App, *fake) {
 	t.Helper()
 	a, f := setup(t)
-	if res := a.CheckConnection(f.URL, "good-key", "1234", "1234"); !res.OK {
+	if res := a.CheckConnection(f.URL, "good-key"); !res.OK {
 		t.Fatalf("%+v", res)
 	}
 	if res := a.Signup(form()); !res.OK {
@@ -380,6 +374,9 @@ func registeredWithPin(t *testing.T) (*App, *fake) {
 
 func TestITSettingsNeedThePin(t *testing.T) {
 	a, f := registeredWithPin(t)
+	if p := a.UnlockMode(); p.Mode != "pin" || !strings.Contains(p.Message, "IT PIN shown on the PC_READER dashboard") {
+		t.Fatalf("prompt %+v", p)
+	}
 	if s := a.ITSettings(); s.OK || s.ServerURL != "" {
 		t.Fatalf("settings readable without the PIN: %+v", s)
 	}
@@ -389,11 +386,18 @@ func TestITSettingsNeedThePin(t *testing.T) {
 	if st := a.StartReregistration(); st.Screen != "home" {
 		t.Fatalf("re-registration without the PIN: %+v", st)
 	}
-	if res := a.UnlockITSettings("0000"); res.OK || res.FieldErrors["pin"] == "" {
+	if res := a.UnlockITSettings("000000"); res.OK || res.FieldErrors["pin"] == "" || res.Mode != "pin" || !strings.Contains(res.Message, "4 tries left") {
 		t.Fatalf("%+v", res)
 	}
-	if res := a.UnlockITSettings("1234"); !res.OK {
+	if res := a.UnlockITSettings("12ab"); res.OK || !strings.Contains(res.Message, "6 digits") {
 		t.Fatalf("%+v", res)
+	}
+	callsBefore := f.unlockCalls
+	if res := a.UnlockITSettings(" 482913 "); !res.OK {
+		t.Fatalf("%+v", res)
+	}
+	if f.unlockCalls != callsBefore+1 {
+		t.Fatal("the PIN was not checked by the server")
 	}
 	if s := a.ITSettings(); !s.OK || s.ServerURL != f.URL {
 		t.Fatalf("%+v", s)
@@ -404,41 +408,224 @@ func TestITSettingsNeedThePin(t *testing.T) {
 	}
 }
 
+func TestOldPinHashIsNotAnUnlock(t *testing.T) {
+	// Only the server's current PIN opens Settings: whatever PIN was typed at an older setup does not.
+	a, f := registeredWithPin(t)
+	f.pin = "111111"
+	if res := a.UnlockITSettings("482913"); res.OK {
+		t.Fatalf("an old PIN unlocked Settings: %+v", res)
+	}
+	if res := a.UnlockITSettings("111111"); !res.OK {
+		t.Fatalf("%+v", res)
+	}
+}
+
 func TestWrongPinLocksFor60SecondsAfterFiveTries(t *testing.T) {
-	a, _ := registeredWithPin(t)
+	a, f := registeredWithPin(t)
 	clock := time.Date(2026, 10, 19, 9, 0, 0, 0, time.UTC)
 	a.now = func() time.Time { return clock }
 	for i := 1; i <= 4; i++ {
-		res := a.UnlockITSettings("0000")
+		res := a.UnlockITSettings("000000")
 		if res.OK || !strings.Contains(res.Message, "not correct") {
 			t.Fatalf("try %d: %+v", i, res)
 		}
 	}
-	if res := a.UnlockITSettings("0000"); res.OK || !strings.Contains(res.Message, "Too many wrong PINs") || !strings.Contains(res.Message, "60 seconds") {
+	if res := a.UnlockITSettings("000000"); res.OK || !strings.Contains(res.Message, "Too many wrong tries") || !strings.Contains(res.Message, "60 seconds") {
 		t.Fatalf("fifth wrong PIN: %+v", res)
 	}
-	// Locked: even the right PIN is refused.
+	// Locked: even the right PIN is refused, without asking the server.
+	calls := f.unlockCalls
 	clock = clock.Add(59 * time.Second)
-	if res := a.UnlockITSettings("1234"); res.OK || !strings.Contains(res.Message, "Too many wrong PINs") {
+	if res := a.UnlockITSettings(f.pin); res.OK || !strings.Contains(res.Message, "Too many wrong tries") {
 		t.Fatalf("right PIN accepted during lockout: %+v", res)
 	}
+	if f.unlockCalls != calls {
+		t.Fatal("the server was asked during the lockout")
+	}
 	clock = clock.Add(2 * time.Second)
-	if res := a.UnlockITSettings("1234"); !res.OK {
+	if res := a.UnlockITSettings(f.pin); !res.OK {
 		t.Fatalf("right PIN refused after lockout: %+v", res)
 	}
 	// A right PIN resets the count.
 	a.LockITSettings()
 	for i := 0; i < 4; i++ {
-		a.UnlockITSettings("0000")
+		a.UnlockITSettings("000000")
 	}
-	if res := a.UnlockITSettings("1234"); !res.OK {
+	if res := a.UnlockITSettings(f.pin); !res.OK {
 		t.Fatalf("count was not reset by the right PIN: %+v", res)
+	}
+}
+
+func TestServerRateLimitIsReportedNotCounted(t *testing.T) {
+	a, f := registeredWithPin(t)
+	f.unlockStatus = 429
+	res := a.UnlockITSettings(f.pin)
+	if res.OK || res.Mode != "pin" || !strings.Contains(res.Message, "Too many wrong PINs") {
+		t.Fatalf("%+v", res)
+	}
+}
+
+func TestServerDownOffersTheEnrollmentKey(t *testing.T) {
+	for _, down := range []string{"unreachable", "5xx"} {
+		t.Run(down, func(t *testing.T) {
+			a, f := registeredWithPin(t)
+			if down == "5xx" {
+				f.unlockStatus = 503
+			} else {
+				f.Close()
+			}
+			res := a.UnlockITSettings("482913")
+			if res.OK || res.Mode != "key" || !strings.Contains(res.Message, "Can't reach the server. Enter the enrollment key to change the server address.") {
+				t.Fatalf("%+v", res)
+			}
+			if a.isUnlocked() {
+				t.Fatal("unlocked without checking anything")
+			}
+			// The prompt stays on the key until the window is left.
+			if p := a.UnlockMode(); p.Mode != "key" {
+				t.Fatalf("prompt %+v", p)
+			}
+			// Even the (never-stored) PIN does not open it now; a wrong key counts as a wrong try.
+			if res := a.UnlockITSettings("482913"); res.OK || res.Mode != "key" || !strings.Contains(res.Message, "4 tries left") {
+				t.Fatalf("%+v", res)
+			}
+			if res := a.UnlockITSettings("good-key"); !res.OK || res.Mode != "key" {
+				t.Fatalf("%+v", res)
+			}
+			if !a.isUnlocked() {
+				t.Fatal("not unlocked with the right key")
+			}
+			if s := a.ITSettings(); !s.OK {
+				t.Fatalf("%+v", s)
+			}
+			a.LockITSettings()
+			if p := a.UnlockMode(); p.Mode != "pin" {
+				t.Fatalf("prompt did not return to the PIN after leaving: %+v", p)
+			}
+		})
+	}
+}
+
+func TestOfflineUnlockIsLogged(t *testing.T) {
+	a, f := registeredWithPin(t)
+	var logged []string
+	a.svc.Log = func(level, category, message string) { logged = append(logged, level+"/"+category+": "+message) }
+	f.unlockStatus = 500
+	a.UnlockITSettings("482913")
+	if res := a.UnlockITSettings("wrong"); res.OK || len(logged) != 0 {
+		t.Fatalf("%+v %v", res, logged)
+	}
+	if res := a.UnlockITSettings("good-key"); !res.OK {
+		t.Fatalf("%+v", res)
+	}
+	if len(logged) != 1 || !strings.Contains(logged[0], "enrollment key") || strings.Contains(logged[0], "good-key") {
+		t.Fatalf("log %v", logged)
+	}
+}
+
+func TestWrongKeysAndPinsShareOneLockout(t *testing.T) {
+	a, f := registeredWithPin(t)
+	clock := time.Date(2026, 10, 19, 9, 0, 0, 0, time.UTC)
+	a.now = func() time.Time { return clock }
+	for i := 0; i < 2; i++ {
+		a.UnlockITSettings("000000") // wrong PIN, server up
+	}
+	f.unlockStatus = 500
+	a.UnlockITSettings("000000") // server down: switches to the key, not counted
+	for i := 0; i < 2; i++ {
+		a.UnlockITSettings("nope") // wrong keys: 3rd and 4th wrong try overall
+	}
+	if res := a.UnlockITSettings("nope"); !strings.Contains(res.Message, "Too many wrong tries") {
+		t.Fatalf("fifth wrong try overall: %+v", res)
+	}
+	if res := a.UnlockITSettings("good-key"); res.OK {
+		t.Fatalf("right key accepted during lockout: %+v", res)
+	}
+	clock = clock.Add(61 * time.Second)
+	if res := a.UnlockITSettings("good-key"); !res.OK {
+		t.Fatalf("%+v", res)
+	}
+}
+
+func TestOfflineWithoutSavedKeyCannotUnlock(t *testing.T) {
+	a, f := setup(t)
+	// Registered by the CLI or an older app version: no enrollment key hash on this computer.
+	if _, err := a.svc.Register(context.Background(), app.RegisterInput{ServerURL: f.URL, Key: "good-key", User: payload.UserDetails{FullName: "A", EmployeeID: "E", Department: "D"}}); err != nil {
+		t.Fatal(err)
+	}
+	f.unlockStatus = 500
+	if res := a.UnlockITSettings("482913"); res.Mode != "key" {
+		t.Fatalf("%+v", res)
+	}
+	for i := 0; i < 7; i++ { // not counted as wrong tries, so never locks out
+		res := a.UnlockITSettings("good-key")
+		if res.OK || !strings.Contains(res.Message, "no saved enrollment key") || !strings.Contains(res.Message, "IT PIN") {
+			t.Fatalf("try %d: %+v", i, res)
+		}
+	}
+	if a.isUnlocked() {
+		t.Fatal("unlocked without a saved key")
+	}
+	// With the server back, the PIN works as usual.
+	a.LockITSettings()
+	f.unlockStatus = 0
+	if res := a.UnlockITSettings("482913"); !res.OK {
+		t.Fatalf("%+v", res)
+	}
+}
+
+func TestRejectedTokenAsksForTheEnrollmentKeyAndRegistersAgain(t *testing.T) {
+	a, f := registeredWithPin(t)
+	f.unauthorized = true
+	// The window already knows (background connection) that the server rejects this computer.
+	a.SetConnection("reregister", "Re-registration needed")
+	if p := a.UnlockMode(); p.Mode != "key" || !strings.Contains(p.Message, "enrollment key") {
+		t.Fatalf("prompt %+v", p)
+	}
+	if res := a.UnlockITSettings("wrong"); res.OK || res.Mode != "key" {
+		t.Fatalf("%+v", res)
+	}
+	if res := a.UnlockITSettings("good-key"); !res.OK {
+		t.Fatalf("%+v", res)
+	}
+	f.unauthorized = false
+	st := a.StartReregistration()
+	if st.Screen != "setup" {
+		t.Fatalf("%+v", st)
+	}
+	if res := a.CheckConnection(f.URL, "good-key"); !res.OK {
+		t.Fatalf("%+v", res)
+	}
+	if res := a.Signup(form()); !res.OK {
+		t.Fatalf("%+v", res)
+	}
+}
+
+func TestServerRejectingTheTokenOnUnlockSwitchesToTheKey(t *testing.T) {
+	a, f := registeredWithPin(t)
+	f.unauthorized = true // the window has not heard about it yet
+	res := a.UnlockITSettings("482913")
+	if res.OK || res.Mode != "key" || !strings.Contains(res.Message, "no longer recognises") {
+		t.Fatalf("%+v", res)
+	}
+	if p := a.UnlockMode(); p.Mode != "key" {
+		t.Fatalf("%+v", p)
+	}
+}
+
+func TestMissingTokenAsksForTheKeyFirst(t *testing.T) {
+	a, _ := registeredWithPin(t)
+	cfg, _ := config.Load()
+	cfg.DeviceUUID = "00000000-0000-4000-8000-000000000000"
+	_ = cfg.Save()
+	if p := a.UnlockMode(); p.Mode != "key" {
+		t.Fatalf("%+v", p)
 	}
 }
 
 func TestSettingsChangeServerURL(t *testing.T) {
 	a, f := registeredWithPin(t)
-	a.UnlockITSettings("1234")
+	a.UnlockITSettings(f.pin)
 
 	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("<html>")) }))
 	defer other.Close()
@@ -461,54 +648,79 @@ func TestSettingsChangeServerURL(t *testing.T) {
 		t.Fatal("unreachable address was saved")
 	}
 
-	if txt := configText(t); strings.Contains(txt, "1234\"") {
+	if txt := configText(t); strings.Contains(txt, f.pin) {
 		t.Fatalf("PIN in config.json:\n%s", txt)
 	}
 	a.LockITSettings()
 	if res := a.SaveServerURL(f.URL); res.OK {
 		t.Fatal("server address changed while locked")
 	}
-	if res := a.UnlockITSettings("1234"); !res.OK {
-		t.Fatalf("PIN no longer works: %+v", res)
-	}
 }
 
-func TestReregisterThroughITSettingsKeepsPin(t *testing.T) {
+func TestReregisterThroughITSettingsRefreshesTheKeyHash(t *testing.T) {
 	a, f := registeredWithPin(t)
-	a.UnlockITSettings("1234")
+	a.UnlockITSettings(f.pin)
 	st := a.StartReregistration()
-	if st.Screen != "setup" || !st.NeedKey || st.NeedPin != "" {
+	if st.Screen != "setup" {
 		t.Fatalf("%+v", st)
 	}
-	if res := a.CheckConnection(f.URL, "", "", ""); res.OK || res.FieldErrors["key"] == "" {
+	if res := a.CheckConnection(f.URL, ""); res.OK || res.FieldErrors["key"] == "" {
 		t.Fatalf("%+v", res)
 	}
-	if res := a.CheckConnection(f.URL, "good-key", "", ""); !res.OK {
+	if res := a.CheckConnection(f.URL, "good-key"); !res.OK {
 		t.Fatalf("%+v", res)
 	}
 	if res := a.Signup(form()); !res.OK {
 		t.Fatalf("%+v", res)
 	}
-	if cfg, _ := config.Load(); cfg.ITPin == nil || !cfg.ITPin.Verify("1234") {
-		t.Fatal("PIN lost while registering again")
+	if cfg, _ := config.Load(); cfg.EnrollmentKeyHash == nil || !cfg.EnrollmentKeyHash.Verify("good-key") {
+		t.Fatal("key hash lost while registering again")
 	}
 	if s := a.ITSettings(); s.OK {
 		t.Fatal("IT settings stayed unlocked after registering again")
 	}
 }
 
-func TestUnregisteredComputerWithPinAsksForIt(t *testing.T) {
-	a, f := registeredWithPin(t)
-	cfg, _ := config.Load()
-	cfg.DeviceID = "" // registration lost, PIN kept
-	_ = cfg.Save()
-	if st := a.State(); st.Screen != "setup" || !st.NeedKey || st.NeedPin != "verify" {
-		t.Fatalf("%+v", st)
+func TestReregistrationGivesACLIRegisteredComputerItsKeyHash(t *testing.T) {
+	a, f := setup(t)
+	if _, err := a.svc.Register(context.Background(), app.RegisterInput{ServerURL: f.URL, Key: "good-key", User: payload.UserDetails{FullName: "A", EmployeeID: "E", Department: "D"}}); err != nil {
+		t.Fatal(err)
 	}
-	if res := a.CheckConnection(f.URL, "good-key", "0000", ""); res.OK || res.FieldErrors["pin"] == "" {
+	if cfg, _ := config.Load(); cfg.EnrollmentKeyHash != nil {
+		t.Fatal("CLI registration saved a key hash")
+	}
+	a.UnlockITSettings(f.pin)
+	a.StartReregistration()
+	a.CheckConnection(f.URL, "good-key")
+	if res := a.Signup(form()); !res.OK {
 		t.Fatalf("%+v", res)
 	}
-	if res := a.CheckConnection(f.URL, "good-key", "1234", ""); !res.OK {
+	if cfg, _ := config.Load(); cfg.EnrollmentKeyHash == nil || !cfg.EnrollmentKeyHash.Verify("good-key") {
+		t.Fatal("no key hash after re-registering")
+	}
+}
+
+func TestLeavingSettingsAbandonsReregistration(t *testing.T) {
+	a, f := registeredWithPin(t)
+	a.UnlockITSettings(f.pin)
+	if st := a.StartReregistration(); st.Screen != "setup" {
+		t.Fatalf("%+v", st)
+	}
+	a.LockITSettings()
+	if st := a.State(); st.Screen != "home" {
+		t.Fatalf("setup stayed reachable without Settings: %+v", st)
+	}
+}
+
+func TestUnregisteredComputerShowsSetup(t *testing.T) {
+	a, f := registeredWithPin(t)
+	cfg, _ := config.Load()
+	cfg.DeviceID = "" // registration lost
+	_ = cfg.Save()
+	if st := a.State(); st.Screen != "setup" {
+		t.Fatalf("%+v", st)
+	}
+	if res := a.CheckConnection(f.URL, "good-key"); !res.OK {
 		t.Fatalf("%+v", res)
 	}
 }
@@ -517,7 +729,7 @@ func TestOnReadyFiresAfterSignupButNotAfterFailedSignup(t *testing.T) {
 	a, f := setup(t)
 	ready := 0
 	a.OnReady = func() { ready++ }
-	if res := a.CheckConnection(f.URL, "wrong-key", "1234", "1234"); !res.OK {
+	if res := a.CheckConnection(f.URL, "wrong-key"); !res.OK {
 		t.Fatalf("%+v", res)
 	}
 	if res := a.Signup(form()); res.OK || ready != 0 {
@@ -528,19 +740,6 @@ func TestOnReadyFiresAfterSignupButNotAfterFailedSignup(t *testing.T) {
 	a.mu.Unlock()
 	if res := a.Signup(form()); !res.OK || ready != 1 {
 		t.Fatalf("signup: res=%+v ready=%d", res, ready)
-	}
-}
-
-func TestOnReadyFiresWhenARegisteredComputerFinishesItSetup(t *testing.T) {
-	a, f := setup(t)
-	// Registered by the CLI (no PIN): IT setup then only asks for the address and PIN.
-	if _, err := a.svc.Register(context.Background(), app.RegisterInput{ServerURL: f.URL, Key: "good-key", User: payload.UserDetails{FullName: "A", EmployeeID: "E-1", Department: "IT"}}); err != nil {
-		t.Fatal(err)
-	}
-	ready := 0
-	a.OnReady = func() { ready++ }
-	if res := a.CheckConnection(f.URL, "", "1234", "1234"); !res.OK || ready != 1 {
-		t.Fatalf("res=%+v ready=%d", res, ready)
 	}
 }
 
