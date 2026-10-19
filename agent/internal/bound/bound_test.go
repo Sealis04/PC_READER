@@ -512,3 +512,62 @@ func TestUnregisteredComputerWithPinAsksForIt(t *testing.T) {
 		t.Fatalf("%+v", res)
 	}
 }
+
+func TestOnReadyFiresAfterSignupButNotAfterFailedSignup(t *testing.T) {
+	a, f := setup(t)
+	ready := 0
+	a.OnReady = func() { ready++ }
+	if res := a.CheckConnection(f.URL, "wrong-key", "1234", "1234"); !res.OK {
+		t.Fatalf("%+v", res)
+	}
+	if res := a.Signup(form()); res.OK || ready != 0 {
+		t.Fatalf("wrong key: res=%+v ready=%d", res, ready)
+	}
+	a.mu.Lock()
+	a.pendingKey = "good-key"
+	a.mu.Unlock()
+	if res := a.Signup(form()); !res.OK || ready != 1 {
+		t.Fatalf("signup: res=%+v ready=%d", res, ready)
+	}
+}
+
+func TestOnReadyFiresWhenARegisteredComputerFinishesItSetup(t *testing.T) {
+	a, f := setup(t)
+	// Registered by the CLI (no PIN): IT setup then only asks for the address and PIN.
+	if _, err := a.svc.Register(context.Background(), app.RegisterInput{ServerURL: f.URL, Key: "good-key", User: payload.UserDetails{FullName: "A", EmployeeID: "E-1", Department: "IT"}}); err != nil {
+		t.Fatal(err)
+	}
+	ready := 0
+	a.OnReady = func() { ready++ }
+	if res := a.CheckConnection(f.URL, "", "1234", "1234"); !res.OK || ready != 1 {
+		t.Fatalf("res=%+v ready=%d", res, ready)
+	}
+}
+
+func TestConnectionStatusAndDetailsPromptState(t *testing.T) {
+	a, _ := setup(t)
+	if c := a.Connection(); c.Status != "" {
+		t.Fatalf("status before the shell reports: %+v", c)
+	}
+	a.SetConnection("connected", "Connected")
+	if c := a.Connection(); c.Status != "connected" || c.Label != "Connected" {
+		t.Fatalf("connection = %+v", c)
+	}
+	a.SetConnection("reregister", "Re-registration needed")
+	if c := a.Connection(); c.Status != "reregister" {
+		t.Fatalf("connection = %+v", c)
+	}
+
+	if p := a.TakePrompt(); p.Show {
+		t.Fatalf("prompt without a request: %+v", p)
+	}
+	a.RaisePrompt()
+	a.RaisePrompt() // twice before the window looked still shows once
+	p := a.TakePrompt()
+	if !p.Show || !strings.Contains(p.Message, "IT asked") {
+		t.Fatalf("prompt = %+v", p)
+	}
+	if again := a.TakePrompt(); again.Show {
+		t.Fatalf("prompt shown twice: %+v", again)
+	}
+}

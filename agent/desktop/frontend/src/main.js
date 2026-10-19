@@ -11,7 +11,10 @@ import {
   LockITSettings,
   ITSettings,
   SaveServerURL,
+  Connection,
+  TakePrompt,
 } from "../wailsjs/go/bound/App";
+import { EventsOn } from "../wailsjs/runtime/runtime";
 
 const root = document.getElementById("app");
 
@@ -112,10 +115,41 @@ function readUser(form) {
 async function start() {
   const st = await State();
   document.getElementById("version").textContent = `v${st.version}`;
-  if (st.screen === "home") return home();
+  if (st.screen === "home") {
+    await home();
+    return checkPrompt();
+  }
   if (st.screen === "signup") return signup(st);
   return setup(st);
 }
+
+// ---- background connection and IT's "confirm your details" prompt ----
+
+// The connection line next to the title ("Connected", "Offline", ...); updated by Go events.
+const connection = el("span", { class: "conn", id: "conn" });
+connection.hidden = true;
+
+async function refreshConnection() {
+  const c = await Connection();
+  connection.hidden = !c.status;
+  connection.textContent = c.label;
+  connection.dataset.status = c.status;
+}
+
+// IT asked the user to confirm their details: open "Update my details" with a message.
+async function checkPrompt() {
+  const p = await TakePrompt();
+  if (!p.show) return;
+  const st = await State();
+  if (st.screen !== "home") return;
+  const h = await MyComputer();
+  if (h.ok) editUser(h, p.message);
+}
+
+EventsOn("connection", refreshConnection);
+EventsOn("prompt-details", checkPrompt);
+refreshConnection();
+document.querySelector("header.top").append(connection);
 
 function setup(st) {
   const banner = el("div");
@@ -346,8 +380,8 @@ async function itSettings(notice) {
   );
 }
 
-function editUser(h) {
-  const banner = el("div");
+function editUser(h, notice) {
+  const banner = el("div", {}, notice ? message("ok", notice) : "");
   const form = el(
     "form",
     { novalidate: true },
