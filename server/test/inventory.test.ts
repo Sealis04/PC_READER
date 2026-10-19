@@ -4,6 +4,7 @@ import { asc, eq } from "drizzle-orm";
 import { closeDb, getDb } from "@/db";
 import { deviceFieldHistory, devices, inventoryCounters, statusHistory } from "@/db/schema";
 import { handleRegister } from "@/lib/agent/register";
+import { getDeviceHistory } from "@/lib/queries";
 import { handleInventoryAction } from "@/lib/dashboard-inventory";
 import { assignNextNumber, changeStatus, clearInventoryNumber, inventoryYear, InventoryError, parseGeneratedNumber, setInventoryNumber, setLocation } from "@/lib/inventory";
 import { jsonRequest, prepareDatabase, registerFixture, resetDatabase } from "./helpers";
@@ -187,5 +188,19 @@ describe("POST /api/dashboard/devices/{id}/inventory", () => {
     expect((await post(a, { action: "set_status", status: "spare", reason: 5 })).status).toBe(400);
     expect((await post(crypto.randomUUID(), { action: "assign_next" })).status).toBe(404);
     expect((await post("not-a-uuid", { action: "assign_next" })).status).toBe(404);
+  });
+});
+
+describe("getDeviceHistory", () => {
+  test("merges status, number, location and assignment changes, newest first", async () => {
+    const id = await newDevice("A");
+    await changeStatus(getDb(), id, "spare", "returned");
+    await setInventoryNumber(getDb(), id, "S-1");
+    await setLocation(getDb(), id, "Room 2");
+    const events = await getDeviceHistory(getDb(), id);
+    expect(events.map((e) => e.kind)).toEqual(["location", "inventory_number", "status", "assigned"]);
+    expect(events[2]).toMatchObject({ from: "in_use", to: "spare", reason: "returned", by: null });
+    expect(events[3].to).toMatch(/\(E-A\)$/);
+    for (let i = 1; i < events.length; i++) expect(events[i - 1].at.getTime()).toBeGreaterThanOrEqual(events[i].at.getTime());
   });
 });

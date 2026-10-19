@@ -1,7 +1,19 @@
 import type { ScanPayload } from "@pcreader/contracts";
 import { and, asc, desc, eq, gte, isNull, lt, or, type SQL } from "drizzle-orm";
 import type { Db } from "@/db";
-import { assignments, components, deviceLogs, deviceRequests, devices, networkLogs, scans, users, type DeviceLog } from "@/db/schema";
+import {
+  assignments,
+  components,
+  deviceFieldHistory,
+  deviceLogs,
+  deviceRequests,
+  devices,
+  networkLogs,
+  scans,
+  statusHistory,
+  users,
+  type DeviceLog,
+} from "@/db/schema";
 import { STALE_MS, type ConnectionState } from "@/lib/format";
 
 // One query for the whole list (no per-device lookups): the connection filter is a WHERE on
@@ -108,4 +120,37 @@ export async function getNetworkHistory(db: Db, deviceId: string) {
     .where(eq(networkLogs.deviceId, deviceId))
     .orderBy(desc(networkLogs.collectedAt))
     .limit(NETWORK_LIMIT);
+}
+
+export type HistoryEvent = {
+  at: Date;
+  kind: "status" | "inventory_number" | "location" | "assigned" | "unassigned";
+  from: string | null;
+  to: string | null;
+  reason: string | null;
+  by: string | null;
+};
+
+// One timeline of status, inventory number, location and assignment changes, newest first. The
+// initial state (no number, status "in use") has no rows; assignments come from the assignments table.
+export async function getDeviceHistory(db: Db, deviceId: string): Promise<HistoryEvent[]> {
+  const [statuses, fields, assigned] = await Promise.all([
+    db.select().from(statusHistory).where(eq(statusHistory.deviceId, deviceId)),
+    db.select().from(deviceFieldHistory).where(eq(deviceFieldHistory.deviceId, deviceId)),
+    db
+      .select({ startAt: assignments.startAt, endAt: assignments.endAt, assignedBy: assignments.assignedBy, notes: assignments.notes, userName: users.fullName, employeeId: users.employeeId })
+      .from(assignments)
+      .innerJoin(users, eq(users.id, assignments.userId))
+      .where(eq(assignments.deviceId, deviceId)),
+  ]);
+  const events: HistoryEvent[] = [
+    ...statuses.map((r): HistoryEvent => ({ at: r.changedAt, kind: "status", from: r.oldStatus, to: r.newStatus, reason: r.reason, by: r.changedBy })),
+    ...fields.map((r): HistoryEvent => ({ at: r.changedAt, kind: r.field, from: r.oldValue, to: r.newValue, reason: r.reason, by: r.changedBy })),
+  ];
+  for (const a of assigned) {
+    const who = `${a.userName} (${a.employeeId})`;
+    events.push({ at: a.startAt, kind: "assigned", from: null, to: who, reason: a.notes, by: a.assignedBy });
+    if (a.endAt) events.push({ at: a.endAt, kind: "unassigned", from: who, to: null, reason: null, by: null });
+  }
+  return events.sort((x, y) => y.at.getTime() - x.at.getTime());
 }
