@@ -66,3 +66,6 @@ Show the desktop app working on a few Windows PCs and Macs: IT enters the server
 - Wails needs CGO and the OS webview, so it can't be built in a Linux container → build in CI on Windows/macOS runners; keep logic in testable Go.
 - WebView2 is preinstalled on Windows 10/11 recent builds; older machines may need the runtime.
 - Unsigned `.app` needs "Open Anyway" on each Mac.
+
+## Result
+Tested on a real Windows PC and merged into `ccr-510da39c-6w5qgz` (PR #4, 2026-10-19). Next: [`plans/m3-background-reporter/plan.md`](../m3-background-reporter/plan.md).

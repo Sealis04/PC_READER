@@ -8,6 +8,14 @@ import registerResponseSchema from "./agent-api/register.response.schema.json";
 import userRequestSchema from "./agent-api/user.request.schema.json";
 import scansRequestSchema from "./agent-api/scans.request.schema.json";
 import scansResponseSchema from "./agent-api/scans.response.schema.json";
+import networkSnapshotSchema from "./agent-api/network-snapshot.schema.json";
+import networkRequestSchema from "./agent-api/network.request.schema.json";
+import eventsRequestSchema from "./agent-api/events.request.schema.json";
+import eventsMessageSchema from "./agent-api/events.message.schema.json";
+import logsRequestSchema from "./agent-api/logs.request.schema.json";
+import logsResponseSchema from "./agent-api/logs.response.schema.json";
+import requestCompleteSchema from "./agent-api/request-complete.request.schema.json";
+import requestCompleteResponseSchema from "./agent-api/request-complete.response.schema.json";
 
 export const schemas = {
   scanPayload: scanPayloadSchema,
@@ -16,11 +24,20 @@ export const schemas = {
   userRequest: userRequestSchema,
   scansRequest: scansRequestSchema,
   scansResponse: scansResponseSchema,
+  networkSnapshot: networkSnapshotSchema,
+  networkRequest: networkRequestSchema,
+  eventsRequest: eventsRequestSchema,
+  eventsMessage: eventsMessageSchema,
+  logsRequest: logsRequestSchema,
+  logsResponse: logsResponseSchema,
+  requestComplete: requestCompleteSchema,
+  requestCompleteResponse: requestCompleteResponseSchema,
 };
 
 const ajv = new Ajv2020({ allErrors: true, strict: true });
 addFormats(ajv);
 ajv.addSchema(scanPayloadSchema);
+ajv.addSchema(networkSnapshotSchema);
 
 export const validateScanPayload = ajv.compile<ScanPayload>(scanPayloadSchema);
 export const validateRegisterRequest = ajv.compile<RegisterRequest>(registerRequestSchema);
@@ -28,6 +45,16 @@ export const validateRegisterResponse = ajv.compile<RegisterResponse>(registerRe
 export const validateUserRequest = ajv.compile<UserDetails>(userRequestSchema);
 export const validateScansRequest = ajv.compile<ScansRequest>(scansRequestSchema);
 export const validateScansResponse = ajv.compile<ScansResponse>(scansResponseSchema);
+
+export const validateNetworkSnapshot = ajv.compile<NetworkSnapshot>(networkSnapshotSchema);
+export const validateNetworkRequest = ajv.compile<NetworkSnapshot>(networkRequestSchema);
+export const validateEventsRequest = ajv.compile<EventsQuery>(eventsRequestSchema);
+export const validateEventsMessage = ajv.compile<EventsMessage>(eventsMessageSchema);
+export const validateLogsRequest = ajv.compile<LogsRequest>(logsRequestSchema);
+export const validateLogsResponse = ajv.compile<LogsResponse>(logsResponseSchema);
+export const validateRequestComplete = ajv.compile<RequestCompleteRequest>(requestCompleteSchema);
+
+export const validateRequestCompleteResponse = ajv.compile<RequestCompleteResponse>(requestCompleteResponseSchema);
 
 export type ValidationIssue = { path: string; message: string };
 
@@ -148,4 +175,64 @@ export interface ScansRequest {
 
 export interface ScansResponse {
   scan_id: string;
+}
+
+export type ConnectionType = "ethernet" | "wifi" | "other";
+
+export interface NetworkSnapshot {
+  collected_at: string;
+  ip_addresses: string[];
+  mac_addresses: string[];
+  gateway: string | null;
+  dns_servers: string[];
+  connection_type: ConnectionType;
+  ssid: string | null;
+}
+
+export type RequestType = "scan_now" | "send_logs" | "prompt_details_update";
+
+export interface EventsQuery {
+  agent_version: string;
+}
+
+export interface PendingRequest {
+  id: string;
+  type: RequestType;
+  created_at: string;
+}
+
+export type EventsMessage =
+  | { event: "hello"; data: { heartbeat_seconds: number } }
+  | { event: "request"; data: PendingRequest };
+
+export const MAX_LOG_BATCH = 500;
+
+export type LogLevel = "error" | "warning" | "info";
+export type LogCategory = "scan" | "sync" | "signup" | "update" | "system";
+
+export interface LogEntry {
+  local_entry_id: number;
+  logged_at: string;
+  level: LogLevel;
+  category: LogCategory;
+  message: string;
+}
+
+export interface LogsRequest {
+  entries: LogEntry[];
+}
+
+export interface LogsResponse {
+  received_ids: number[];
+}
+
+export interface RequestCompleteRequest {
+  result: "done" | "failed";
+  scan_id?: string;
+  message?: string;
+}
+
+export interface RequestCompleteResponse {
+  id: string;
+  status: "done" | "failed";
 }

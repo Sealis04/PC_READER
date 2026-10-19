@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pcreader.internal/contracts/agent-api/network-snapshot.schema.json",
+  "title": "Network snapshot",
+  "description": "The PC's current network details. Sent by POST /api/agent/network when the connection opens and whenever the network changes (IP, gateway, DNS, connection type, SSID).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["collected_at", "ip_addresses", "mac_addresses", "gateway", "dns_servers", "connection_type", "ssid"],
+  "properties": {
+    "collected_at": { "type": "string", "format": "date-time" },
+    "ip_addresses": { "type": "array", "maxItems": 32, "items": { "type": "string", "minLength": 1, "maxLength": 64 }, "description": "IPv4 and IPv6, excluding IPv6 link-local" },
+    "mac_addresses": { "type": "array", "maxItems": 32, "items": { "type": "string", "pattern": "^([0-9A-F]{2}:){5}[0-9A-F]{2}$" }, "description": "Upper-case, colon-separated; adapters that carry the default route or an address" },
+    "gateway": { "type": ["string", "null"], "maxLength": 64 },
+    "dns_servers": { "type": "array", "maxItems": 16, "items": { "type": "string", "minLength": 1, "maxLength": 64 } },
+    "connection_type": { "enum": ["ethernet", "wifi", "other"] },
+    "ssid": { "type": ["string", "null"], "maxLength": 64, "description": "null when not on Wi-Fi or hidden by the OS" }
+  }
+}

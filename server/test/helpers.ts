@@ -19,7 +19,7 @@ export async function prepareDatabase(): Promise<void> {
 }
 
 export async function resetDatabase(): Promise<void> {
-  await getDb().execute(sql`truncate table scans, components, assignments, devices, users restart identity cascade`);
+  await getDb().execute(sql`truncate table device_requests, device_logs, network_logs, scans, components, assignments, devices, users restart identity cascade`);
 }
 
 export function jsonRequest(path: string, body: unknown, headers: Record<string, string> = {}): Request {

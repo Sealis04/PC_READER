@@ -43,6 +43,12 @@ export const componentCategory = pgEnum("component_category", [
 ]);
 export const scanType = pgEnum("scan_type", ["scheduled", "startup", "on_demand", "manual"]);
 
+export const requestType = pgEnum("request_type", ["scan_now", "send_logs", "prompt_details_update"]);
+export const requestStatus = pgEnum("request_status", ["pending", "delivered", "done", "failed"]);
+export const connectionType = pgEnum("connection_type", ["ethernet", "wifi", "other"]);
+export const logLevel = pgEnum("log_level", ["error", "warning", "info"]);
+export const logCategory = pgEnum("log_category", ["scan", "sync", "signup", "update", "system"]);
+
 export const users = pgTable("users", {
   ...base,
   fullName: text("full_name").notNull(),
@@ -72,8 +78,14 @@ export const devices = pgTable(
     lastFullScanAt: timestamp("last_full_scan_at", { withTimezone: true }),
     // SHA-256 of the device token; null when revoked (forces re-registration).
     tokenHash: text("token_hash"),
+    agentVersion: text("agent_version"),
+    // True while the agent's events stream is open. connection_id names that stream, so a stream
+    // that closes after a newer one opened does not flip the device offline.
+    online: boolean("online").notNull().default(false),
+    connectionId: uuid("connection_id"),
+    connectedAt: timestamp("connected_at", { withTimezone: true }),
   },
-  (t) => [uniqueIndex("devices_token_hash_idx").on(t.tokenHash)],
+  (t) => [uniqueIndex("devices_token_hash_idx").on(t.tokenHash), index("devices_last_seen_idx").on(t.lastSeenAt)],
 );
 
 export const components = pgTable(
@@ -143,6 +155,75 @@ export const scans = pgTable(
   (t) => [index("scans_device_collected_idx").on(t.deviceId, t.collectedAt)],
 );
 
+// A dashboard request for a PC (scan now, send logs, ask the user to confirm details).
+export const deviceRequests = pgTable(
+  "device_requests",
+  {
+    ...base,
+    deviceId: uuid("device_id")
+      .notNull()
+      .references(() => devices.id, { onDelete: "cascade" }),
+    type: requestType("type").notNull(),
+    status: requestStatus("status").notNull().default("pending"),
+    deliveredAt: timestamp("delivered_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    scanId: uuid("scan_id").references(() => scans.id, { onDelete: "set null" }),
+    message: text("message"),
+    // Null until the dashboard has staff login.
+    requestedBy: text("requested_by"),
+  },
+  (t) => [
+    index("device_requests_device_idx").on(t.deviceId, t.createdAt),
+    // One open (pending or delivered) request per type per device.
+    uniqueIndex("device_requests_open_idx")
+      .on(t.deviceId, t.type)
+      .where(sql`${t.status} in ('pending', 'delivered')`),
+  ],
+);
+
+// Append-only: one row per network snapshot the agent sent.
+export const networkLogs = pgTable(
+  "network_logs",
+  {
+    ...base,
+    deviceId: uuid("device_id")
+      .notNull()
+      .references(() => devices.id, { onDelete: "cascade" }),
+    collectedAt: timestamp("collected_at", { withTimezone: true }).notNull(),
+    ipAddresses: text("ip_addresses").array().notNull(),
+    macAddresses: text("mac_addresses").array().notNull(),
+    gateway: text("gateway"),
+    dnsServers: text("dns_servers").array().notNull(),
+    connectionType: connectionType("connection_type").notNull(),
+    ssid: text("ssid"),
+    online: boolean("online").notNull().default(true),
+  },
+  (t) => [index("network_logs_device_collected_idx").on(t.deviceId, t.collectedAt)],
+);
+
+// Entries the agent uploaded from its local log; (device_id, local_entry_id) ignores duplicate uploads.
+export const deviceLogs = pgTable(
+  "device_logs",
+  {
+    ...base,
+    deviceId: uuid("device_id")
+      .notNull()
+      .references(() => devices.id, { onDelete: "cascade" }),
+    localEntryId: bigint("local_entry_id", { mode: "number" }).notNull(),
+    loggedAt: timestamp("logged_at", { withTimezone: true }).notNull(),
+    level: logLevel("level").notNull(),
+    category: logCategory("category").notNull(),
+    message: text("message").notNull(),
+  },
+  (t) => [
+    uniqueIndex("device_logs_entry_idx").on(t.deviceId, t.localEntryId),
+    index("device_logs_device_logged_idx").on(t.deviceId, t.loggedAt),
+  ],
+);
+
 export type Device = typeof devices.$inferSelect;
 export type Component = typeof components.$inferSelect;
 export type NewComponent = typeof components.$inferInsert;
+export type DeviceRequest = typeof deviceRequests.$inferSelect;
+export type NetworkLog = typeof networkLogs.$inferSelect;
+export type DeviceLog = typeof deviceLogs.$inferSelect;

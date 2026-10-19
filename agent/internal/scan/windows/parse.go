@@ -241,6 +241,33 @@ func Parse(raw rd.Set, agentVersion string) (*payload.Scan, error) {
 		})
 	}
 
+	s.Network = parseNetwork(adapters, configs, raw.Text(NetshFile))
+
+	s.Normalize()
+	return s, nil
+}
+
+// NetworkClasses are the CIM classes ParseNetwork needs (a subset of Classes).
+var NetworkClasses = []string{"Win32_NetworkAdapter", "Win32_NetworkAdapterConfiguration"}
+
+// ParseNetwork builds the network section from the network classes and the netsh output alone
+// (the light collection the background app repeats when the network changes).
+func ParseNetwork(raw rd.Set) (payload.Network, error) {
+	adapters, err := raw.JSONList("Win32_NetworkAdapter.json")
+	if err != nil {
+		return payload.Network{}, err
+	}
+	configs, err := raw.JSONList("Win32_NetworkAdapterConfiguration.json")
+	if err != nil {
+		return payload.Network{}, err
+	}
+	s := payload.Scan{Network: parseNetwork(adapters, configs, raw.Text(NetshFile))}
+	s.Normalize()
+	return s.Network, nil
+}
+
+func parseNetwork(adapters, configs []map[string]any, netsh string) payload.Network {
+	net := payload.Network{}
 	cfgByIndex := map[string]map[string]any{}
 	for _, c := range configs {
 		cfgByIndex[rd.Deref(rd.Str(c, "Index"))] = c
@@ -264,7 +291,7 @@ func Parse(raw rd.Set, agentVersion string) (*payload.Scan, error) {
 		if gws := rd.Strings(cfg, "DefaultIPGateway"); len(gws) > 0 {
 			gateway = &gws[0]
 		}
-		s.Network.Adapters = append(s.Network.Adapters, payload.Adapter{
+		net.Adapters = append(net.Adapters, payload.Adapter{
 			Name:        rd.Deref(rd.Str(a, "Name")),
 			MACAddress:  mac,
 			Type:        adapterType(a),
@@ -275,10 +302,8 @@ func Parse(raw rd.Set, agentVersion string) (*payload.Scan, error) {
 			DHCPEnabled: rd.Bool(cfg, "DHCPEnabled"),
 		})
 	}
-	s.Network.WifiSSID = ParseNetshSSID(raw.Text(NetshFile))
-
-	s.Normalize()
-	return s, nil
+	net.WifiSSID = ParseNetshSSID(netsh)
+	return net
 }
 
 func adapterType(a map[string]any) string {

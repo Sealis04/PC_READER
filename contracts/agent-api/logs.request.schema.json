@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pcreader.internal/contracts/agent-api/logs.request.schema.json",
+  "title": "POST /api/agent/logs request",
+  "description": "A batch of local log entries, at most 500. More than 500 entries returns 413 (split the batch and retry). Duplicates (same local_entry_id) are ignored and still reported as received.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["entries"],
+  "properties": {
+    "entries": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 500,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["local_entry_id", "logged_at", "level", "category", "message"],
+        "properties": {
+          "local_entry_id": { "type": "integer", "minimum": 1 },
+          "logged_at": { "type": "string", "format": "date-time" },
+          "level": { "enum": ["error", "warning", "info"] },
+          "category": { "enum": ["scan", "sync", "signup", "update", "system"] },
+          "message": { "type": "string", "minLength": 1, "maxLength": 1000 }
+        }
+      }
+    }
+  }
+}

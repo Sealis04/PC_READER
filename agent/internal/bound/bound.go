@@ -49,6 +49,13 @@ type App struct {
 	now           func() time.Time
 
 	busy sync.Mutex // one scan/upload/signup at a time
+
+	// OnReady is called (when set) once IT setup or signup has finished on this computer: the
+	// shell starts the background connection and start-at-login then. It runs outside the lock.
+	OnReady func()
+
+	connStatus, connLabel string // background connection, set by the shell
+	promptPending         bool   // IT asked the user to confirm their details
 }
 
 func New(svc *app.Service, version string) *App {
@@ -57,6 +64,58 @@ func New(svc *app.Service, version string) *App {
 
 // Startup stores the window's context (Wails calls it on start).
 func (a *App) Startup(ctx context.Context) { a.ctx = ctx }
+
+// ConnectionView is the background connection as the window shows it.
+type ConnectionView struct {
+	// Status is "connecting", "connected", "offline" or "reregister" ("" until the shell reports).
+	Status string `json:"status"`
+	Label  string `json:"label"`
+}
+
+// SetConnection records the background connection status (called by the shell).
+func (a *App) SetConnection(status, label string) {
+	a.mu.Lock()
+	a.connStatus, a.connLabel = status, label
+	a.mu.Unlock()
+}
+
+// Connection is what the window shows next to "My computer".
+func (a *App) Connection() ConnectionView {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return ConnectionView{Status: a.connStatus, Label: a.connLabel}
+}
+
+// RaisePrompt records that IT asked the user to confirm their details (called by the shell).
+func (a *App) RaisePrompt() {
+	a.mu.Lock()
+	a.promptPending = true
+	a.mu.Unlock()
+}
+
+// PromptView is the answer to TakePrompt.
+type PromptView struct {
+	Show    bool   `json:"show"`
+	Message string `json:"message"`
+}
+
+// TakePrompt tells the window whether to open "Update my details" with a message, and clears
+// the flag, so the prompt shows once.
+func (a *App) TakePrompt() PromptView {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if !a.promptPending {
+		return PromptView{}
+	}
+	a.promptPending = false
+	return PromptView{Show: true, Message: "IT asked you to confirm your details. Check them and press Save."}
+}
+
+func (a *App) ready() {
+	if a.OnReady != nil {
+		a.OnReady()
+	}
+}
 
 // UserForm is the person's details as typed in the window.
 type UserForm struct {
@@ -205,6 +264,7 @@ func (a *App) CheckConnection(serverURL, key, pin, pinAgain string) Result {
 		a.mu.Lock()
 		a.unlocked = false
 		a.mu.Unlock()
+		a.ready()
 		return Result{OK: true, Message: "Saved. Connected to " + u + "."}
 	}
 	a.mu.Lock()
@@ -314,6 +374,7 @@ func (a *App) SaveServerURL(serverURL string) Result {
 	if err := a.svc.SetServerURL(u); err != nil {
 		return fail("The server address could not be saved: " + err.Error())
 	}
+	a.ready() // reconnect the background connection to the new address
 	return Result{OK: true, Message: "Saved. Connected to " + u + "."}
 }
 
@@ -358,6 +419,7 @@ func (a *App) Signup(f UserForm) Result {
 	a.mu.Lock()
 	a.pendingServer, a.pendingKey, a.pendingPin, a.reregistering, a.unlocked = "", "", nil, false, false
 	a.mu.Unlock()
+	a.ready()
 	if res.UploadErr != nil {
 		out.Message += " Your specs could not be sent yet (" + friendly(res.UploadErr, server) + "); use “Report now” to try again."
 	}

@@ -1,0 +1,7 @@
+{
+  "entries": [
+    { "local_entry_id": 41, "logged_at": "2026-10-19T08:00:00Z", "level": "info", "category": "system", "message": "Connected to the server" },
+    { "local_entry_id": 42, "logged_at": "2026-10-19T08:00:05Z", "level": "info", "category": "scan", "message": "Scan completed" },
+    { "local_entry_id": 43, "logged_at": "2026-10-19T08:05:00Z", "level": "warning", "category": "sync", "message": "Server unreachable; retrying" }
+  ]
+}
