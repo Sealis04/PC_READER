@@ -265,6 +265,8 @@ type Status struct {
 	LastPayload  *payload.Scan
 	// TokenErr is non-nil when the registration has no usable token stored.
 	TokenErr error
+	// ITPin is the stored hash of the IT PIN, nil until IT sets one (also when unregistered).
+	ITPin *config.PinHash
 }
 
 // Status reads config.json and checks that the token is present.
@@ -274,7 +276,7 @@ func (s *Service) Status() (*Status, error) {
 		return nil, err
 	}
 	dir, _ := config.Dir()
-	st := &Status{Dir: dir, Registered: cfg.DeviceID != ""}
+	st := &Status{Dir: dir, Registered: cfg.DeviceID != "", ITPin: cfg.ITPin}
 	if !st.Registered {
 		return st, nil
 	}
@@ -282,6 +284,37 @@ func (s *Service) Status() (*Status, error) {
 	st.LastReportAt, st.User, st.LastPayload = cfg.LastReportAt, cfg.User, cfg.LastPayload
 	_, st.TokenErr = s.tokens().Get(cfg.DeviceUUID)
 	return st, nil
+}
+
+// SetITPin stores the hash of the IT PIN (nil is not allowed).
+func (s *Service) SetITPin(h *config.PinHash) error {
+	if h == nil {
+		return errors.New("no PIN hash given")
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	cfg.ITPin = h
+	return cfg.Save()
+}
+
+// SetServerURL saves a new server address for an already-registered computer. It does not
+// contact the server; callers check the connection first.
+func (s *Service) SetServerURL(serverURL string) error {
+	u, err := NormalizeServerURL(serverURL)
+	if err != nil {
+		return err
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	if cfg.DeviceID == "" {
+		return ErrNotRegistered
+	}
+	cfg.ServerURL = u
+	return cfg.Save()
 }
 
 func (s *Service) uploadAndRecord(ctx context.Context, cfg *config.Config, token, scanType string, collectedAt time.Time, sc *payload.Scan) (string, bool, error) {

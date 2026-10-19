@@ -17,7 +17,7 @@ import (
 
 const keyringService = "PCReader"
 
-// Config is saved as config.json in Dir(). It holds no secrets, but it does hold the
+// Config is saved as config.json in Dir(). It holds no secrets (the IT PIN is only a salted hash), but it does hold the
 // user's details and the last scan (for the desktop app); neither is ever logged.
 type Config struct {
 	ServerURL    string `json:"server_url"`
@@ -29,6 +29,8 @@ type Config struct {
 	// LastReportAt is when the last scan was uploaded (RFC 3339, UTC); LastPayload is that scan.
 	LastReportAt string        `json:"last_report_at,omitempty"`
 	LastPayload  *payload.Scan `json:"last_payload,omitempty"`
+	// ITPin is the salted hash of the PIN that protects the desktop app's IT settings.
+	ITPin *PinHash `json:"it_pin,omitempty"`
 }
 
 // Dir is the app data folder: %AppData%\PCReader on Windows,

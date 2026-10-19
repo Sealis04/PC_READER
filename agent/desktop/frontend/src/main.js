@@ -7,6 +7,11 @@ import {
   ReportNow,
   UpdateUser,
   StartReregistration,
+  UnlockITSettings,
+  LockITSettings,
+  ITSettings,
+  SaveServerURL,
+  ChangePIN,
 } from "../wailsjs/go/bound/App";
 
 const root = document.getElementById("app");
@@ -115,26 +120,46 @@ async function start() {
 
 function setup(st) {
   const banner = el("div");
+  const askKey = st.needKey;
+  const pinFields =
+    st.needPin === "create"
+      ? [
+          field("pin", "IT PIN", { type: "password", required: true, hint: "4 to 8 digits. IT needs it later to change these settings." }),
+          field("pinAgain", "Repeat the IT PIN", { type: "password", required: true }),
+        ]
+      : st.needPin === "verify"
+        ? [field("pin", "IT PIN", { type: "password", required: true })]
+        : [];
   const form = el(
     "form",
     { novalidate: true },
     field("serverUrl", "Server address", { value: st.serverUrl, required: true, hint: "For example http://192.168.1.10:3000" }),
-    field("key", "Enrollment key", { type: "password", required: true, hint: "Given to you by IT. It is not saved on this computer." }),
-    el("div", { class: "actions" }, el("button", { type: "submit", class: "primary" }, "Check connection and continue")),
+    askKey ? field("key", "Enrollment key", { type: "password", required: true, hint: "Given to you by IT. It is not saved on this computer." }) : "",
+    ...pinFields,
+    el("div", { class: "actions" }, el("button", { type: "submit", class: "primary" }, askKey ? "Check connection and continue" : "Check connection and save")),
   );
+  const val = (n) => (form.elements[n] ? form.elements[n].value : "");
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     const btn = form.querySelector("button");
     busy(btn, "Checking…", true);
-    const res = await CheckConnection(form.elements.serverUrl.value, form.elements.key.value);
+    const res = await CheckConnection(val("serverUrl"), val("key"), val("pin"), val("pinAgain"));
     busy(btn, "", false);
     showFieldErrors(form, res.fieldErrors ?? {});
     banner.replaceChildren(res.ok ? "" : message("error", res.message));
-    if (res.ok) signup({ ...st, serverUrl: form.elements.serverUrl.value });
+    if (!res.ok) return;
+    if (askKey) return signup({ ...st, serverUrl: val("serverUrl") });
+    home(res.message);
   });
   show(
-    el("h1", {}, "Set up this computer"),
-    el("p", { class: "muted" }, "IT: enter the server address and enrollment key once. The person using this computer signs up next."),
+    el("h1", {}, "IT setup"),
+    el(
+      "p",
+      { class: "muted" },
+      askKey
+        ? "IT: enter the server address, the enrollment key and an IT PIN once. The person using this computer signs up next."
+        : "IT: this computer is already registered. Confirm the server address and choose an IT PIN to protect these settings.",
+    ),
     el("div", { class: "card" }, banner, form),
   );
 }
@@ -253,19 +278,102 @@ function renderHome(h, banner) {
     ),
     el("div", { class: "actions", style: "margin-bottom:16px" }, reportBtn, el("button", { onclick: () => editUser(h) }, "Update my details")),
     details,
+    el("p", { class: "footer-link" }, el("button", { class: "link", onclick: () => itLogin() }, "IT settings")),
   );
 }
 
+// Registering again is an IT task, so it goes through the PIN like the other IT settings.
 function reregisterButton() {
-  return el(
-    "button",
-    {
-      class: "primary",
-      onclick: async () => {
-        setup(await StartReregistration());
-      },
-    },
-    "Register this computer again",
+  return el("button", { class: "primary", onclick: () => itLogin() }, "Register this computer again (IT)");
+}
+
+function itLogin() {
+  const banner = el("div");
+  const form = el(
+    "form",
+    { novalidate: true },
+    field("pin", "IT PIN", { type: "password", required: true }),
+    el(
+      "div",
+      { class: "actions" },
+      el("button", { type: "button", onclick: () => home() }, "Cancel"),
+      el("button", { type: "submit", class: "primary" }, "Open IT settings"),
+    ),
+  );
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const res = await UnlockITSettings(form.elements.pin.value);
+    if (res.ok) return itSettings();
+    form.elements.pin.value = "";
+    showFieldErrors(form, {});
+    banner.replaceChildren(message("error", res.message));
+  });
+  show(el("h1", {}, "IT settings"), el("p", { class: "muted" }, "Enter the IT PIN to continue."), el("div", { class: "card" }, banner, form));
+}
+
+async function itSettings(notice) {
+  const cur = await ITSettings();
+  if (!cur.ok) return itLogin();
+  const leave = async () => {
+    await LockITSettings();
+    home();
+  };
+
+  const urlBanner = el("div", {}, notice ? message("ok", notice) : "");
+  const urlForm = el(
+    "form",
+    { novalidate: true },
+    field("serverUrl", "Server address", { value: cur.serverUrl, required: true, hint: "For example http://192.168.1.10:3000" }),
+    el("div", { class: "actions" }, el("button", { type: "submit", class: "primary" }, "Check connection and save")),
+  );
+  urlForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const btn = urlForm.querySelector("button");
+    busy(btn, "Checking…", true);
+    const res = await SaveServerURL(urlForm.elements.serverUrl.value);
+    busy(btn, "", false);
+    showFieldErrors(urlForm, res.fieldErrors ?? {});
+    urlBanner.replaceChildren(message(res.ok ? "ok" : "error", res.message));
+  });
+
+  const pinBanner = el("div");
+  const pinForm = el(
+    "form",
+    { novalidate: true },
+    field("pin", "New IT PIN", { type: "password", required: true, hint: "4 to 8 digits" }),
+    field("pinAgain", "Repeat the new PIN", { type: "password", required: true }),
+    el("div", { class: "actions" }, el("button", { type: "submit" }, "Change PIN")),
+  );
+  pinForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const res = await ChangePIN(pinForm.elements.pin.value, pinForm.elements.pinAgain.value);
+    showFieldErrors(pinForm, res.fieldErrors ?? {});
+    pinBanner.replaceChildren(message(res.ok ? "ok" : "error", res.message));
+    if (res.ok) pinForm.reset();
+  });
+
+  show(
+    el("h1", {}, "IT settings"),
+    el("div", { class: "card" }, el("h2", {}, "Server address"), urlBanner, urlForm),
+    el(
+      "div",
+      { class: "card" },
+      el("h2", {}, "Register this computer again"),
+      el("p", { class: "muted" }, "Needs the enrollment key and the user's details. The IT PIN stays the same."),
+      el(
+        "button",
+        {
+          onclick: async () => {
+            const st = await StartReregistration();
+            if (st.screen === "setup") return setup(st);
+            itLogin();
+          },
+        },
+        "Register this computer again",
+      ),
+    ),
+    el("div", { class: "card" }, el("h2", {}, "Change the IT PIN"), pinBanner, pinForm),
+    el("div", { class: "actions" }, el("button", { onclick: leave }, "Done")),
   );
 }
 
