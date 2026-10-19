@@ -110,6 +110,9 @@ func (a *App) CheckConnection(serverURL, key string) Result {
 	u, err := a.svc.CheckConnection(ctx, serverURL)
 	if err != nil {
 		res := fail(friendly(err, serverURL))
+		if strings.Contains(err.Error(), "cannot reach") {
+			res.Message = "Cannot reach the server at " + serverURL + ". Make sure the PC_READER server is running (docker compose up -d on the server computer) and that this address is correct, e.g. http://192.168.1.10:3000."
+		}
 		if strings.Contains(err.Error(), "must be a URL") {
 			res.FieldErrors = map[string]string{"serverUrl": "Use an address like http://192.168.1.10:3000"}
 		}

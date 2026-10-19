@@ -158,7 +158,7 @@ func TestSignupWrongKeyAndUnreachableServerSpeakPlainly(t *testing.T) {
 		t.Fatal("left signup after a wrong key")
 	}
 	f.Close()
-	if res := a.CheckConnection(f.URL, "k"); res.OK || !strings.Contains(res.Message, "Cannot reach the server") {
+	if res := a.CheckConnection(f.URL, "k"); res.OK || !strings.Contains(res.Message, "Cannot reach the server at "+f.URL) || !strings.Contains(res.Message, "docker compose up -d") {
 		t.Fatalf("%+v", res)
 	}
 }
