@@ -6,7 +6,7 @@ Source spec: [`docs/technical-spec.md`](../../docs/technical-spec.md). M2 plan: 
 
 The desktop app starts when the user logs in, stays in the tray / menu bar, and holds one quiet outbound connection to the server. Staff open a device in the dashboard and press **Scan now**, **Send logs** or **Ask user to confirm details**; the server sends a wakeup down that connection and the PC acts within seconds. The dashboard shows which PCs are online, when each was last seen, its agent version, its network snapshots and its uploaded logs.
 
-**Out of scope for M3:** a separate Windows Service / LaunchAgent, a periodic check-in, a daily automatic scan or log upload, staff login and roles, status history, online/offline history, tagging, PM reports, installer, HTTPS, code signing, server retention cleanup (waits for the nightly job).
+**Out of scope for M3:** a separate Windows Service / LaunchAgent, a periodic check-in, a daily automatic scan or log upload, staff login and roles, status history, online/offline history, tagging, PM reports, macOS `.pkg` installer, HTTPS, code signing, server retention cleanup (waits for the nightly job).
 
 ## Decisions
 
@@ -23,6 +23,8 @@ The desktop app starts when the user logs in, stays in the tray / menu bar, and 
 | Token | Unchanged from M2 (user's Credential Manager / Keychain). Nothing to migrate |
 | Dashboard login | None in M3. Requests are not attributed (`requested_by` null) |
 | History | No status history and no online/offline history in M3 |
+| Windows install | NSIS setup built by Wails (`-nsis`): Program Files, Start menu + desktop shortcut, uninstall entry; start-at-login points at the installed exe. Mac stays drag-to-Applications (decided 2026-10-19 after the first real-PC test) |
+| Tray clicks | Left-click opens the window; right-click menu: Open PC_READER, Report now, status line; no Quit |
 | Builders | Builder 1 only; no reviewer routine. The planner checks the PR and CI; the user reviews and merges |
 
 ## Work breakdown (Builder 1, in this order, separate commits)

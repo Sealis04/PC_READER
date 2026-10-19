@@ -70,8 +70,20 @@ func (s *shell) showWindow() {
 	if ctx == nil {
 		return
 	}
+	// Show works for a window hidden by --background or by the close button; the brief
+	// always-on-top toggle brings it in front of other windows (focus-stealing rules on Windows).
 	wruntime.WindowUnminimise(ctx)
 	wruntime.WindowShow(ctx)
+	wruntime.WindowSetAlwaysOnTop(ctx, true)
+	wruntime.WindowSetAlwaysOnTop(ctx, false)
+}
+
+// reportNow is the tray's "Report now": the same scan and upload as the window's button.
+func (s *shell) reportNow() {
+	go func() {
+		s.app.ReportNow()
+		s.emit("reported")
+	}()
 }
 
 func (s *shell) emit(event string) {
@@ -144,7 +156,7 @@ func main() {
 	svc.Log = func(level, category, message string) { _ = s.log.Add(level, category, message) }
 	s.app = bound.New(svc, version)
 	s.app.OnReady = s.ready
-	s.tray = newTray(s.showWindow)
+	s.tray = newTray(s.showWindow, s.reportNow)
 
 	err := wails.Run(&options.App{
 		Title:     "PC_READER",

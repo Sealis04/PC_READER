@@ -16,14 +16,18 @@ var (
 	trayICO []byte
 )
 
-// tray is the notification-area / menu-bar icon: "Open PC_READER" and a status line. It has
-// no quit item on purpose: the app runs until the user logs out.
+// tray is the notification-area / menu-bar icon: "Open PC_READER", "Report now" and a status
+// line. It has no quit item on purpose: the app runs until the user logs out.
 //
-// fyne.io/systray is used with RunWithExternalLoop so it does not start a loop of its own:
-// Wails owns the main thread (required on macOS) and the tray joins it. On Windows the
-// library runs its own message loop on a locked OS thread.
+// Windows: the tray's hidden window and the message loop that feeds it must live on the same OS
+// thread, and Wails' OnStartup runs on a goroutine with no loop. So the tray gets its own
+// goroutine, locked to one thread, running the library's own loop (systray.Run). Left-click
+// (and double-click) opens the window; right-click shows the menu.
+//
+// macOS: Wails owns the main thread, so the tray joins it (RunWithExternalLoop).
 type tray struct {
-	open func()
+	open   func()
+	report func()
 
 	mu     sync.Mutex
 	status *systray.MenuItem
@@ -31,10 +35,28 @@ type tray struct {
 	end    func()
 }
 
-func newTray(open func()) *tray { return &tray{open: open, text: "Starting…"} }
+func newTray(open, report func()) *tray {
+	return &tray{open: open, report: report, text: "Starting…"}
+}
+
+// runPinned runs fn on a goroutine locked to its own OS thread (what a Windows message loop needs).
+func runPinned(fn func()) {
+	go func() {
+		runtime.LockOSThread()
+		defer runtime.UnlockOSThread()
+		fn()
+	}()
+}
 
 // Start adds the icon. Call it once the GUI loop is running (Wails' OnStartup).
 func (t *tray) Start() {
+	// Left-click / double-click opens the window; the right-click menu is the library default.
+	systray.SetOnTapped(t.open)
+	if runtime.GOOS == "windows" {
+		t.end = systray.Quit
+		runPinned(func() { systray.Run(t.onReady, func() {}) })
+		return
+	}
 	start, end := systray.RunWithExternalLoop(t.onReady, func() {})
 	t.end = end
 	start()
@@ -48,6 +70,7 @@ func (t *tray) onReady() {
 	}
 	systray.SetTooltip("PC_READER")
 	openItem := systray.AddMenuItem("Open PC_READER", "Show the PC_READER window")
+	reportItem := systray.AddMenuItem("Report now", "Send this computer's details to IT now")
 	systray.AddSeparator()
 	t.mu.Lock()
 	t.status = systray.AddMenuItem(t.text, "")
@@ -56,6 +79,11 @@ func (t *tray) onReady() {
 	go func() {
 		for range openItem.ClickedCh {
 			t.open()
+		}
+	}()
+	go func() {
+		for range reportItem.ClickedCh {
+			t.report()
 		}
 	}()
 }

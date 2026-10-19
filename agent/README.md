@@ -19,7 +19,20 @@ Builds are unsigned:
 
 ## Desktop app
 
-Download the `pcreader-desktop` artifact from the latest successful **agent** workflow run (Actions → agent → run → Artifacts): `pcreader-desktop.exe` (Windows 10/11, 64-bit) and `pcreader-desktop-macos.zip` (universal `.app`, Intel and Apple Silicon).
+Download the `pcreader-desktop` artifact from the latest successful **agent** workflow run (Actions → agent → run → Artifacts): `PC_READER-setup.exe` (Windows installer), `pcreader-desktop.exe` (plain Windows exe, for testing) and `pcreader-desktop-macos.zip` (universal `.app`, Intel and Apple Silicon).
+
+### Install on Windows
+
+1. Run `PC_READER-setup.exe` (needs administrator rights). It installs to `C:\Program Files\PC_READER`, adds a Start menu and a desktop shortcut and an uninstall entry (*Settings → Apps*), then offers to start PC_READER. Installing over an older version closes the running app first.
+2. The setup is unsigned, so SmartScreen may warn: *More info → Run anyway*.
+3. Start at login points at the installed exe (the app rewrites the entry on every launch, so it follows the install folder). Do not run the app from Downloads on a real PC: use the setup, otherwise start-at-login points at Downloads.
+4. **Uninstall** closes the app, removes the program files, shortcuts and the start-at-login entry. It leaves `%AppData%\PCReader` (`config.json`, `log.db`) and the device token in Credential Manager (service `PCReader`, the `token-…` entries) so a reinstall keeps the registration. To remove them as well: delete the `%AppData%\PCReader` folder and the `PCReader` entries in *Credential Manager → Windows Credentials*. If the start-at-login entry is still there afterwards, run `pcreader-desktop.exe --remove-autostart` before uninstalling or delete the `PC_READER` value under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`.
+
+### Install on Mac
+
+Unzip `pcreader-desktop-macos.zip` and drag `PC_READER.app` into `/Applications`, then open it (first launch: see Gatekeeper below). Start at login writes a LaunchAgent that points at the app where it is running from, so install it in `/Applications` *before* the first launch. If the app is moved later, open it once and the entry is rewritten. Uninstall: delete the app and `~/Library/LaunchAgents/ph.gov.intramuros.pcreader.plist`; `~/Library/Application Support/PCReader` and the Keychain item `PCReader` stay unless you delete them.
+
+### First-time setup (IT)
 
 **First-time setup (IT):**
 1. Open the app. The first screen is *IT setup*: enter the server address (e.g. `http://192.168.1.10:3000`), the enrollment key and an **IT PIN** (4–8 digits, entered twice), then *Check connection and continue*. The check only confirms the server answers; a wrong key is reported when the user signs up. The key is kept in memory only; of the PIN only a salted PBKDF2-SHA256 hash (600,000 iterations) is saved in `config.json`.
@@ -52,7 +65,7 @@ wails build -platform windows/amd64   # or darwin/universal; output in build/bin
 After IT setup or signup the desktop app keeps running quietly:
 
 - **Start at login.** Turned on automatically once the computer is set up, and re-checked on every launch. Windows: a per-user entry `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` (value `PC_READER`). macOS: the LaunchAgent `~/Library/LaunchAgents/ph.gov.intramuros.pcreader.plist`. Both start the app with `--background`: hidden, tray only. Starting the app yourself shows the window. It reports only while a user is logged in.
-- **Tray / menu bar icon.** "Open PC_READER" and a status line (*Connected*, *Offline*, *Re-registration needed*). There is deliberately no Quit item: the app runs until the user logs out. Closing the window only hides it. Launching the app again shows the running window (single instance).
+- **Tray / menu bar icon.** Left-click (or double-click) opens the window; right-click shows a menu with "Open PC_READER", "Report now" and a status line (*Connected*, *Offline*, *Re-registration needed*). There is deliberately no Quit item: the app runs until the user logs out. Closing the window only hides it. Launching the app again shows the running window (single instance).
 - **One quiet connection, no polling.** The app opens one outbound Server-Sent Events connection (`GET /api/agent/events`). The server pushes a request the moment staff queue it; the PC acts within seconds. There is no periodic check-in, daily scan or timed log upload. After sleep, network loss or a server restart the app reconnects (waits 1 s, 5 s, 15 s, then 60 s; starts over after a connection stayed up for a minute). PCs never accept incoming connections. If the server rejects the token (401) the app stops and shows *Re-registration needed*.
 - **What is sent, and when.**
 
@@ -69,7 +82,7 @@ After IT setup or signup the desktop app keeps running quietly:
 - **`pcreader listen`** runs the same connection in the foreground (Ctrl+C to stop): for testing on Linux/CI and for debugging on a real PC. `--from-raw DIR` answers `scan_now` from a `capture-raw` folder instead of scanning. On Linux the network snapshot lists interface addresses only.
 - **Users can still end the app** (Task Manager, removing the login item). The computer then shows as Offline, and as Stale after 48 hours.
 
-The tray uses [`fyne.io/systray`](https://github.com/fyne-io/systray) next to Wails v2 (`RunWithExternalLoop`, started from Wails' `OnStartup`, so Wails keeps the main thread macOS requires). Wails v3 was not used because it is still alpha.
+The tray uses [`fyne.io/systray`](https://github.com/fyne-io/systray) next to Wails v2. On macOS it joins Wails' main thread (`RunWithExternalLoop`). On Windows it runs on its own goroutine locked to one OS thread with the library's own message loop (`systray.Run`): the tray's hidden window and its message loop must share a thread, and Wails' `OnStartup` goroutine has no loop, which is why clicks were ignored before. Wails v3 was not used because it is still alpha.
 
 ## Use (command line)
 
