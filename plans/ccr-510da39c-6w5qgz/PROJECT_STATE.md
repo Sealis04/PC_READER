@@ -1,12 +1,13 @@
 # Project state — ccr-510da39c-6w5qgz
 
-**Goal (current):** Milestone 3 — background app and on-request actions (see `plans/m3-background-reporter/plan.md`).
+**Goal (current):** Milestone 4 — inventory numbers and statuses (see `plans/m4-inventory-tags/plan.md`).
 
 ## In progress
-- Nothing; next milestone not planned yet
+- builder-1: M4 — status/number/location history, `IA-YYYY-NNNNN` counter, device page editors + QR label, list filters and search
 
 ## Queued
-- Merge `ccr-510da39c-6w5qgz` (M2 + M3) into `main`
+- Planner checks builder-1's PR and CI; user reviews, merges and tests
+- Merge `ccr-510da39c-6w5qgz` (M2–M4) into `main`
 - Later milestones: staff login and roles, status history, tagging, PM reports, installer, HTTPS
 
 ## Open items
