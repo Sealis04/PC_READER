@@ -10,7 +10,8 @@ export type ErrorCode =
   | "enrollment_disabled"
   | "payload_too_large"
   | "unsupported_media_type"
-  | "not_found";
+  | "not_found"
+  | "conflict";
 
 export function jsonResponse(body: unknown, status = 200): Response {
   return Response.json(body, { status, headers: { "cache-control": "no-store" } });
