@@ -20,23 +20,20 @@ See the repo `CLAUDE.md`. In short: bun + Drizzle (no Prisma, no `db:push`/`db:g
 
 ---
 
-## builder-1 — FIX REQUEST (2026-10-19, round 2)
+## builder-1 — FIX REQUEST (2026-10-19, round 3)
 
-PR #1 (`claude/cool-volta-4q6iev` → `ccr-510da39c-6w5qgz`) is complete except the desktop builds. Both `desktop (windows-latest)` and `desktop (macos-latest)` fail in `wails build` at **Generating bindings**:
+Base: PR #2 (`claude/cool-volta-w8ogw1`, CI green). Round 2 (desktop builds) is done.
 
-```
-package github.com/sealis04/pc_reader/agent/desktop: build constraints exclude all Go files in .../agent/desktop
-```
+**1. Console windows pop up on Windows (bug, from the user's real-PC test).** The desktop app starts `powershell.exe` and `netsh` through `scan.Exec` (`agent/internal/scan/scan.go`) without hiding them, so Windows opens a console window for every command. Fix:
+- Add `agent/internal/scan/exec_windows.go` setting `cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000 /* CREATE_NO_WINDOW */}`, and `exec_other.go` (`//go:build !windows`) as a no-op, called from `Exec`.
+- Apply it to every command the agent starts (search for other `exec.Command` uses).
+- Add a Windows-only unit test that `Exec` sets those flags (`GOOS=windows go vet` must pass; the live-scan job on `windows-latest` runs the test).
 
-Wails' bindings generator compiles `agent/desktop` without the `desktop` tag, so the `//go:build desktop` constraint hides `main.go`. The frontend imports the generated `wailsjs/go/bound/App`, so bindings can't be skipped.
+**2. Clearer "cannot reach the server" message in IT setup.** The user didn't realise the server is their own Docker Compose stack. In `agent/internal/bound/bound.go` (and its test), for the IT-setup connection check, say: "Cannot reach the server at <url>. Make sure the PC_READER server is running (docker compose up -d on the server computer) and that this address is correct, e.g. http://192.168.1.10:3000." Keep the existing wording for errors after signup.
 
-**Fix (pick one, keep the reason in a code comment):**
-- Preferred: make `agent/desktop` its own Go module (`module github.com/sealis04/pc_reader/agent/desktop`, `replace github.com/sealis04/pc_reader/agent => ../`), drop the build tag and `build:tags`. Go's `internal/` rule is path-based, so it can still import `agent/internal/...`. Keep `bound` unit-tested: move it into the agent module (e.g. `agent/internal/bound`, package name still `bound` so `wailsjs/go/bound/App` doesn't change) or run its tests from the new module in CI.
-- Or: drop the tag and exclude `./desktop` from Linux `go vet` / `go test` in CI and the root scripts.
+**Done when:** CI is green on your PR (desktop jobs included).
 
-**Done when:** both CI desktop jobs build and the `pcreader-desktop` artifact is uploaded; the `test`, `live-scan`, `build` jobs and the server workflow stay green; `bun run lint` and `bun run test` pass.
-
-**Branching:** you cannot push to `claude/cool-volta-4q6iev`. Reset your assigned branch onto `origin/claude/cool-volta-4q6iev` (not the feature branch), add the fix, push, and open a new PR into `ccr-510da39c-6w5qgz` that says it supersedes #1. Check the CI result on your PR before you stop. Do not fire the reviewer.
+**Branching:** reset your assigned branch onto `origin/claude/cool-volta-w8ogw1`, fix, push, and open a new PR into `ccr-510da39c-6w5qgz` that supersedes #2. Do not fire the reviewer.
 
 ---
 

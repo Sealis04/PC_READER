@@ -58,6 +58,9 @@ Show the desktop app working on a few Windows PCs and Macs: IT enters the server
 - CI builds the Windows `.exe` and macOS `.app` and uploads them.
 - On a real PC: first launch → IT setup → signup → the device appears in the dashboard with the user; "Update my details" changes the dashboard's assigned user; "Report now" updates the last scan time.
 
+## Open items for a pilot/rollout
+- Code signing: Windows Authenticode (or Azure Trusted Signing) and Apple Developer ID + notarization, so Chrome, SmartScreen and Gatekeeper stop flagging the builds. IT can also distribute builds from an internal share or deployment tool.
+
 ## Risks
 - Wails needs CGO and the OS webview, so it can't be built in a Linux container → build in CI on Windows/macOS runners; keep logic in testable Go.
 - WebView2 is preinstalled on Windows 10/11 recent builds; older machines may need the runtime.
