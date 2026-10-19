@@ -37,6 +37,8 @@ jobs:
         run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
       - name: go vet (linux, windows, darwin)
         run: go vet ./... && GOOS=windows go vet ./... && GOOS=darwin go vet ./...
+      - name: go vet desktop shell (windows; the Wails shell is behind the desktop tag)
+        run: GOOS=windows CGO_ENABLED=0 go vet -tags desktop ./desktop/
       - run: go test -count=1 ./...
 
       # End-to-end: real server + database, agent CLI registers and uploads the raw fixtures.
@@ -122,3 +124,64 @@ jobs:
         with:
           name: pcreader-binaries
           path: agent/dist
+
+  # Wails desktop app (needs the OS webview toolchain, so it is built on real runners).
+  desktop:
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            name: windows
+            platform: windows/amd64
+          - os: macos-latest
+            name: macos
+            platform: darwin/universal
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: agent/desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: agent/go.mod
+          cache-dependency-path: agent/go.sum
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - name: Install Wails
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.10.2
+      - name: Build
+        run: |
+          wails build -clean -platform ${{ matrix.platform }} -tags desktop \
+            -ldflags "-X main.version=0.2.0+${GITHUB_SHA::7}"
+          ls -lR build/bin
+      - name: Package (Windows)
+        if: matrix.name == 'windows'
+        run: |
+          mkdir -p ../dist-desktop
+          cp build/bin/pcreader-desktop.exe ../dist-desktop/
+      - name: Package (macOS)
+        if: matrix.name == 'macos'
+        run: |
+          mkdir -p ../dist-desktop
+          # zip keeps the executable bit and bundle structure that upload-artifact would drop
+          ditto -c -k --keepParent build/bin/pcreader-desktop.app ../dist-desktop/pcreader-desktop-macos.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pcreader-desktop-${{ matrix.name }}
+          path: agent/dist-desktop
+          if-no-files-found: error
+
+  desktop-artifact:
+    needs: desktop
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/upload-artifact/merge@v4
+        with:
+          name: pcreader-desktop
+          pattern: pcreader-desktop-*
+          delete-merged: true
