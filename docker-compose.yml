@@ -37,6 +37,7 @@ services:
       ENROLLMENT_KEY: ${ENROLLMENT_KEY:?Set ENROLLMENT_KEY in .env}
       CHECKIN_INTERVAL_SECONDS: ${CHECKIN_INTERVAL_SECONDS:-300}
       DISPLAY_TIMEZONE: ${DISPLAY_TIMEZONE:-Asia/Manila}
+      IT_PIN_SECRET: ${IT_PIN_SECRET:-}
     ports:
       - "0.0.0.0:3000:3000"
     depends_on:

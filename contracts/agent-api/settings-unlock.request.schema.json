@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pcreader.internal/contracts/agent-api/settings-unlock.request.schema.json",
+  "title": "POST /api/agent/settings-unlock request",
+  "description": "The IT PIN typed on the PC (the 6 digits shown on the dashboard). Errors: 401 bad device token, 403 wrong_pin, 429 too_many_attempts.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["pin"],
+  "properties": {
+    "pin": { "type": "string", "pattern": "^[0-9]{6}$" }
+  }
+}

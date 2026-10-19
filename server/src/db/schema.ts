@@ -48,6 +48,7 @@ export const requestType = pgEnum("request_type", ["scan_now", "send_logs", "pro
 export const requestStatus = pgEnum("request_status", ["pending", "delivered", "done", "failed"]);
 export const connectionType = pgEnum("connection_type", ["ethernet", "wifi", "other"]);
 export const logLevel = pgEnum("log_level", ["error", "warning", "info"]);
+export const unlockMethod = pgEnum("unlock_method", ["hourly_pin"]);
 export const logCategory = pgEnum("log_category", ["scan", "sync", "signup", "update", "system"]);
 
 export const users = pgTable("users", {
@@ -270,9 +271,34 @@ export const deviceLogs = pgTable(
   ],
 );
 
+// The single row behind the hourly IT PIN: the HMAC secret (unused when IT_PIN_SECRET is set) and the
+// generation that "Change now" bumps. Never sent to a PC.
+export const itPinState = pgTable("it_pin_state", {
+  id: integer("id").primaryKey().default(1),
+  secret: text("secret").notNull(),
+  generation: integer("generation").notNull().default(0),
+  rotatedAt: timestamp("rotated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Append-only: one row per Settings unlock attempt a PC checked with the server.
+export const settingsUnlockAttempts = pgTable(
+  "settings_unlock_attempts",
+  {
+    ...base,
+    deviceId: uuid("device_id")
+      .notNull()
+      .references(() => devices.id, { onDelete: "cascade" }),
+    attemptedAt: timestamp("attempted_at", { withTimezone: true }).notNull().defaultNow(),
+    success: boolean("success").notNull(),
+    method: unlockMethod("method").notNull().default("hourly_pin"),
+  },
+  (t) => [index("settings_unlock_attempts_device_idx").on(t.deviceId, t.attemptedAt)],
+);
+
 export type Device = typeof devices.$inferSelect;
 export type Component = typeof components.$inferSelect;
 export type NewComponent = typeof components.$inferInsert;
 export type DeviceRequest = typeof deviceRequests.$inferSelect;
 export type NetworkLog = typeof networkLogs.$inferSelect;
 export type DeviceLog = typeof deviceLogs.$inferSelect;
+export type SettingsUnlockAttempt = typeof settingsUnlockAttempts.$inferSelect;

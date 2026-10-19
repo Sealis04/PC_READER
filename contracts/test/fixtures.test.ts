@@ -14,6 +14,8 @@ import {
   validateRequestCompleteResponse,
   validateScanPayload,
   validateScansRequest,
+  validateSettingsUnlockRequest,
+  validateSettingsUnlockResponse,
   validateUserRequest,
 } from "../index";
 
@@ -63,6 +65,25 @@ describe("user fixtures", () => {
     expect(validateUserRequest({ ...u, policy_acknowledged: true })).toBe(false);
     delete u.department;
     expect(validateUserRequest(u)).toBe(false);
+  });
+});
+
+describe("settings-unlock fixtures", () => {
+  test("request.json matches settings-unlock.request", () => {
+    expect(validateSettingsUnlockRequest(load("settings-unlock/request.json"))).toBe(true);
+  });
+  test("response.json matches settings-unlock.response", () => {
+    expect(validateSettingsUnlockResponse(load("settings-unlock/response.json"))).toBe(true);
+  });
+  test("the PIN must be exactly six digits", () => {
+    for (const pin of ["12345", "1234567", "12345a", "", " 123456"]) {
+      expect(validateSettingsUnlockRequest({ pin })).toBe(false);
+    }
+    expect(validateSettingsUnlockRequest({ pin: "000000" })).toBe(true);
+    expect(validateSettingsUnlockRequest({ pin: "123456", extra: 1 })).toBe(false);
+  });
+  test("the response is only ever ok: true", () => {
+    expect(validateSettingsUnlockResponse({ ok: false })).toBe(false);
   });
 });
 

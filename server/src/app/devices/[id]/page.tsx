@@ -16,6 +16,7 @@ import {
   REQUEST_STATUS_LABEL,
   STATUS_LABEL,
 } from "@/lib/format";
+import { getUnlockAttempts } from "@/lib/it-pin";
 import { REQUEST_TYPES } from "@/lib/requests";
 import { getDeviceDetail, getDeviceHistory, getDeviceLogs, getLatestRequests, getNetworkHistory, LOG_LIMIT, NETWORK_LIMIT } from "@/lib/queries";
 
@@ -78,11 +79,12 @@ export default async function DevicePage({
   const detail = await getDeviceDetail(db, id);
   if (!detail) notFound();
   const level = LEVELS.find((l) => l === levelParam);
-  const [latestRequests, logs, network, history] = await Promise.all([
+  const [latestRequests, logs, network, history, unlocks] = await Promise.all([
     getLatestRequests(db, id),
     getDeviceLogs(db, id, level),
     getNetworkHistory(db, id),
     getDeviceHistory(db, id),
+    getUnlockAttempts(db, id),
   ]);
   const requestRows: RequestRow[] = REQUEST_TYPES.map((type) => {
     const r = latestRequests.get(type);
@@ -211,6 +213,28 @@ export default async function DevicePage({
               ))}
             </ul>
           )}
+        </div>
+      </section>
+
+      <section>
+        <h2>Settings unlock attempts</h2>
+        <div className="panel pad">
+          {unlocks.length === 0 ? (
+            <p className="sub">Nobody has tried to open Settings on this computer yet.</p>
+          ) : (
+            <ul className="timeline">
+              {unlocks.map((u) => (
+                <li key={u.id}>
+                  <span className="num sub">{formatDateTime(u.attemptedAt)}</span>
+                  <span>
+                    <span className={`pill${u.success ? "" : " warn"}`}>{u.success ? "Unlocked" : "Wrong PIN"}</span>{" "}
+                    <span className="sub">hourly IT PIN</span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="sub">Unlocks with the enrollment key while the server was unreachable appear in the logs after the next Send logs.</p>
         </div>
       </section>
 
