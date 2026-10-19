@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pcreader.internal/contracts/agent-api/request-complete.request.schema.json",
+  "title": "POST /api/agent/requests/{id}/complete request",
+  "description": "Reports how a dashboard request went. Idempotent: completing a finished request again returns 200 with the stored outcome. 404 for a request that is not this device's.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["result"],
+  "properties": {
+    "result": { "enum": ["done", "failed"] },
+    "scan_id": { "type": "string", "format": "uuid", "description": "The scan a scan_now request produced" },
+    "message": { "type": "string", "maxLength": 500, "description": "Short plain-words reason when result is failed; never personal details" }
+  }
+}

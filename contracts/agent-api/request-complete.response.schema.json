@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pcreader.internal/contracts/agent-api/request-complete.response.schema.json",
+  "title": "POST /api/agent/requests/{id}/complete 200 response",
+  "description": "The request as stored. A repeat call returns the first outcome unchanged.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "status"],
+  "properties": {
+    "id": { "type": "string", "format": "uuid" },
+    "status": { "enum": ["done", "failed"] }
+  }
+}
