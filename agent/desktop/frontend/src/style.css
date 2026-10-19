@@ -71,3 +71,7 @@ summary { cursor: pointer; font-weight: 600; }
 @media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
 .footer-link { margin-top: 24px; text-align: center; }
 button.link { border: none; background: none; padding: 4px 8px; color: var(--muted, inherit); font-size: 0.85em; text-decoration: underline; }
+
+.conn { margin-left: auto; font-size: 12px; padding: 1px 8px; border-radius: 99px; border: 1px solid var(--line, #ccc); }
+.conn[data-status="connected"] { color: #1f6f5c; border-color: #1f6f5c; }
+.conn[data-status="offline"], .conn[data-status="reregister"] { color: #8a5300; border-color: #8a5300; }

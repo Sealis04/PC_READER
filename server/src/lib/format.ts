@@ -43,8 +43,34 @@ export const CATEGORY_LABEL = {
   psu: "Power supply",
 } as const;
 
-const STALE_MS = 48 * 60 * 60 * 1000;
+export const STALE_MS = 48 * 60 * 60 * 1000;
 
 export function isStale(lastSeenAt: Date | null, now = new Date()): boolean {
   return !lastSeenAt || now.getTime() - lastSeenAt.getTime() > STALE_MS;
 }
+
+export type ConnectionState = "online" | "offline" | "stale";
+
+// Online while the agent's events stream is open; Stale once it has been offline for over 48 hours
+// (or was never seen); Offline otherwise.
+export function connectionState(d: { online: boolean; lastSeenAt: Date | null }, now = new Date()): ConnectionState {
+  if (d.online) return "online";
+  return isStale(d.lastSeenAt, now) ? "stale" : "offline";
+}
+
+export const CONNECTION_LABEL = { online: "Online", offline: "Offline", stale: "Stale" } as const;
+
+export const REQUEST_LABEL = {
+  scan_now: "Scan now",
+  send_logs: "Send logs",
+  prompt_details_update: "Ask user to confirm details",
+} as const;
+
+export const REQUEST_STATUS_LABEL = {
+  pending: "Waiting for the PC",
+  delivered: "Sent to the PC",
+  done: "Done",
+  failed: "Failed",
+} as const;
+
+export const CONNECTION_TYPE_LABEL = { ethernet: "Ethernet", wifi: "Wi-Fi", other: "Other" } as const;

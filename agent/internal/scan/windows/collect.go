@@ -17,14 +17,17 @@ type Runner func(ctx context.Context, name string, args ...string) ([]byte, erro
 
 // script queries every CIM class in one PowerShell process (starting PowerShell
 // is the slow part) and prints {"<Class>": [instances...] | null}.
-func script() string {
+func script() string { return scriptFor(nil) }
+
+// scriptFor is script limited to the named classes (all when only is empty).
+func scriptFor(only []string) string {
 	var b strings.Builder
 	b.WriteString("$ErrorActionPreference = 'Stop'\n")
 	b.WriteString("[Console]::OutputEncoding = [System.Text.Encoding]::UTF8\n")
 	// Windows PowerShell 5.1 otherwise serializes arrays as {"value":[...],"Count":n}.
 	b.WriteString("try { Remove-TypeData System.Array -ErrorAction Stop } catch {}\n")
 	b.WriteString("$classes = @(\n")
-	for _, c := range Classes {
+	for _, c := range selected(only) {
 		props := "'" + strings.Join(strings.Split(c.Props, ","), "','") + "'"
 		fmt.Fprintf(&b, "  @{ Name = '%s'; Namespace = '%s'; Props = @(%s) }\n", c.Name, c.Namespace, props)
 	}
@@ -44,6 +47,27 @@ $out | ConvertTo-Json -Depth 4 -Compress
 	return b.String()
 }
 
+type class = struct {
+	Name      string
+	Namespace string
+	Props     string
+}
+
+func selected(only []string) []class {
+	if len(only) == 0 {
+		return Classes
+	}
+	var out []class
+	for _, c := range Classes {
+		for _, n := range only {
+			if c.Name == n {
+				out = append(out, c)
+			}
+		}
+	}
+	return out
+}
+
 // encodedCommand is the UTF-16LE base64 form PowerShell's -EncodedCommand expects,
 // which avoids quoting problems and execution-policy prompts for script files.
 func encodedCommand(s string) string {
@@ -57,8 +81,15 @@ func encodedCommand(s string) string {
 }
 
 // Collect runs the CIM query and netsh, returning one raw file per class.
-func Collect(ctx context.Context, run Runner) (rd.Set, error) {
-	out, err := run(ctx, "powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encodedCommand(script()))
+func Collect(ctx context.Context, run Runner) (rd.Set, error) { return collect(ctx, run, nil) }
+
+// CollectNetwork is Collect limited to the network classes and netsh (what ParseNetwork reads).
+func CollectNetwork(ctx context.Context, run Runner) (rd.Set, error) {
+	return collect(ctx, run, NetworkClasses)
+}
+
+func collect(ctx context.Context, run Runner, only []string) (rd.Set, error) {
+	out, err := run(ctx, "powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encodedCommand(scriptFor(only)))
 	if err != nil {
 		return nil, fmt.Errorf("PowerShell CIM query failed: %w", err)
 	}
@@ -67,7 +98,7 @@ func Collect(ctx context.Context, run Runner) (rd.Set, error) {
 		return nil, fmt.Errorf("PowerShell output is not JSON: %w", err)
 	}
 	raw := rd.Set{}
-	for _, c := range Classes {
+	for _, c := range selected(only) {
 		var pretty bytes.Buffer
 		data := byClass[c.Name]
 		if len(data) == 0 {

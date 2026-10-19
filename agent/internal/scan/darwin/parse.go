@@ -417,6 +417,13 @@ func firstResolverDNS(text string) []string {
 	return out
 }
 
+// ParseNetwork builds the network section from the network commands' output alone.
+func ParseNetwork(raw rd.Set) payload.Network {
+	s := payload.Scan{Network: parseNetwork(raw)}
+	s.Normalize()
+	return s.Network
+}
+
 func parseNetwork(raw rd.Set) payload.Network {
 	ips := interfaceIPs(raw.Text(IfconfigFile))
 	route := keyValues(raw.Text(RouteFile))

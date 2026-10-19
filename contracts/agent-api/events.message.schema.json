@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pcreader.internal/contracts/agent-api/events.message.schema.json",
+  "title": "GET /api/agent/events stream messages",
+  "description": "The JSON in the data: line of each event. Event 'hello' is sent first (the stream is open), event 'request' once per pending request (all pending ones on connect, new ones the moment they are queued). Comment lines (': heartbeat') every ~25 s keep proxies from closing an idle stream and carry no data.",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["event", "data"],
+      "properties": {
+        "event": { "const": "hello" },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["heartbeat_seconds"],
+          "properties": { "heartbeat_seconds": { "type": "integer", "minimum": 1 } }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["event", "data"],
+      "properties": {
+        "event": { "const": "request" },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "type", "created_at"],
+          "properties": {
+            "id": { "type": "string", "format": "uuid" },
+            "type": { "enum": ["scan_now", "send_logs", "prompt_details_update"] },
+            "created_at": { "type": "string", "format": "date-time" }
+          }
+        }
+      }
+    }
+  ]
+}

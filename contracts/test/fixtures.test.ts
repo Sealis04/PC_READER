@@ -1,7 +1,21 @@
 import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { formatErrors, validateRegisterRequest, validateScanPayload, validateScansRequest, validateUserRequest } from "../index";
+import {
+  formatErrors,
+  validateEventsMessage,
+  validateEventsRequest,
+  validateLogsRequest,
+  validateLogsResponse,
+  validateNetworkRequest,
+  validateNetworkSnapshot,
+  validateRegisterRequest,
+  validateRequestComplete,
+  validateRequestCompleteResponse,
+  validateScanPayload,
+  validateScansRequest,
+  validateUserRequest,
+} from "../index";
 
 const fixtures = join(import.meta.dir, "..", "fixtures");
 const load = (rel: string) => JSON.parse(readFileSync(join(fixtures, rel), "utf8"));
@@ -83,5 +97,82 @@ describe("schema rules", () => {
     const r = load("register/windows-desktop.json");
     r.user.policy_acknowledged = false;
     expect(validateRegisterRequest(r)).toBe(false);
+  });
+});
+
+describe("network fixtures", () => {
+  for (const name of files("network")) {
+    test(`${name} matches network-snapshot and network.request`, () => {
+      const body = load(`network/${name}`);
+      expect(validateNetworkSnapshot(body)).toBe(true);
+      expect(validateNetworkRequest(body)).toBe(true);
+    });
+  }
+
+  test("needs every field; ssid and gateway may be null, connection_type is an enum", () => {
+    const n = load("network/wifi.json");
+    expect(validateNetworkSnapshot({ ...n, ssid: null, gateway: null })).toBe(true);
+    expect(validateNetworkSnapshot({ ...n, connection_type: "cellular" })).toBe(false);
+    expect(validateNetworkSnapshot({ ...n, mac_addresses: ["d0:8e:79:00:00:02"] })).toBe(false);
+    const missing = { ...n };
+    delete missing.ssid;
+    expect(validateNetworkSnapshot(missing)).toBe(false);
+    expect(validateNetworkSnapshot({ ...n, extra: 1 })).toBe(false);
+  });
+});
+
+describe("events fixtures", () => {
+  test("query carries agent_version", () => {
+    expect(validateEventsRequest(load("events/query.json"))).toBe(true);
+    expect(validateEventsRequest({})).toBe(false);
+  });
+  for (const name of files("events").filter((f) => f !== "query.json")) {
+    test(`${name} matches events.message`, () => {
+      const ok = validateEventsMessage(load(`events/${name}`));
+      expect(formatErrors(validateEventsMessage.errors)).toEqual([]);
+      expect(ok).toBe(true);
+    });
+  }
+  test("a request event needs a known type", () => {
+    const m = load("events/request-scan-now.json");
+    m.data.type = "reboot";
+    expect(validateEventsMessage(m)).toBe(false);
+  });
+});
+
+describe("logs fixtures", () => {
+  test("request.json matches logs.request and response.json matches logs.response", () => {
+    expect(validateLogsRequest(load("logs/request.json"))).toBe(true);
+    expect(validateLogsResponse(load("logs/response.json"))).toBe(true);
+  });
+
+  test("batches are 1 to 500 entries with known levels and categories", () => {
+    const r = load("logs/request.json");
+    const entry = r.entries[0];
+    expect(validateLogsRequest({ entries: [] })).toBe(false);
+    expect(validateLogsRequest({ entries: Array.from({ length: 500 }, (_, i) => ({ ...entry, local_entry_id: i + 1 })) })).toBe(true);
+    expect(validateLogsRequest({ entries: Array.from({ length: 501 }, (_, i) => ({ ...entry, local_entry_id: i + 1 })) })).toBe(false);
+    expect(validateLogsRequest({ entries: [{ ...entry, level: "debug" }] })).toBe(false);
+    expect(validateLogsRequest({ entries: [{ ...entry, category: "other" }] })).toBe(false);
+    expect(validateLogsRequest({ entries: [{ ...entry, local_entry_id: 0 }] })).toBe(false);
+  });
+});
+
+describe("request-complete fixtures", () => {
+  for (const name of files("request-complete")) {
+    test(`${name} matches request-complete.request`, () => {
+      const ok = validateRequestComplete(load(`request-complete/${name}`));
+      expect(formatErrors(validateRequestComplete.errors)).toEqual([]);
+      expect(ok).toBe(true);
+    });
+  }
+  test("response is the request id and its final status", () => {
+    expect(validateRequestCompleteResponse({ id: crypto.randomUUID(), status: "done" })).toBe(true);
+    expect(validateRequestCompleteResponse({ id: crypto.randomUUID(), status: "pending" })).toBe(false);
+  });
+  test("result must be done or failed; scan_id must be a uuid", () => {
+    expect(validateRequestComplete({ result: "pending" })).toBe(false);
+    expect(validateRequestComplete({ result: "done", scan_id: "nope" })).toBe(false);
+    expect(validateRequestComplete({})).toBe(false);
   });
 });

@@ -156,9 +156,15 @@ jobs:
           bun-version: 1.4.2
       - name: Install Wails
         run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.10.2
+      - name: Install NSIS (Windows)
+        if: matrix.name == 'windows'
+        run: command -v makensis >/dev/null || choco install nsis -y --no-progress
       - name: Build
         run: |
-          wails build -clean -platform ${{ matrix.platform }} \
+          flags=""
+          [ "${{ matrix.name }}" = windows ] && flags="-nsis"
+          [ "${{ matrix.name }}" = windows ] && export PATH="$PATH:/c/Program Files (x86)/NSIS"
+          wails build -clean $flags -platform ${{ matrix.platform }} \
             -ldflags "-X main.version=0.2.0+${GITHUB_SHA::7}"
           ls -lR build/bin
       - name: Package (Windows)
@@ -166,6 +172,9 @@ jobs:
         run: |
           mkdir -p ../dist-desktop
           cp build/bin/pcreader-desktop.exe ../dist-desktop/
+          # the NSIS setup (Program Files, Start menu + desktop shortcut, uninstaller);
+          # project.nsi names it after wails.json "name", not "outputfilename"
+          cp build/bin/PC_READER-amd64-installer.exe ../dist-desktop/PC_READER-setup.exe
       - name: Package (macOS)
         if: matrix.name == 'macos'
         run: |

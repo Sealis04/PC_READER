@@ -1,0 +1,9 @@
+{
+  "collected_at": "2026-10-19T08:30:00Z",
+  "ip_addresses": ["192.168.1.57", "2001:db8:1::57"],
+  "mac_addresses": ["D0:8E:79:00:00:02"],
+  "gateway": "192.168.1.1",
+  "dns_servers": ["192.168.1.1", "8.8.8.8"],
+  "connection_type": "wifi",
+  "ssid": "SAMPLE-AGENCY-WIFI"
+}

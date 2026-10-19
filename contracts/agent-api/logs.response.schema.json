@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pcreader.internal/contracts/agent-api/logs.response.schema.json",
+  "title": "POST /api/agent/logs 200 response",
+  "description": "The local_entry_ids the server now holds. The agent deletes only these from its local log.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["received_ids"],
+  "properties": {
+    "received_ids": { "type": "array", "items": { "type": "integer", "minimum": 1 } }
+  }
+}

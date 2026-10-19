@@ -9,7 +9,8 @@ export type ErrorCode =
   | "invalid_enrollment_key"
   | "enrollment_disabled"
   | "payload_too_large"
-  | "unsupported_media_type";
+  | "unsupported_media_type"
+  | "not_found";
 
 export function jsonResponse(body: unknown, status = 200): Response {
   return Response.json(body, { status, headers: { "cache-control": "no-store" } });
