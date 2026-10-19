@@ -17,7 +17,7 @@ import { handleEvents, resetOnlineFlags } from "@/lib/agent/events";
 import { handleLogs } from "@/lib/agent/logs";
 import { handleNetwork } from "@/lib/agent/network";
 import { handleRequestComplete } from "@/lib/agent/complete";
-import { handleQueueRequest } from "@/lib/dashboard-requests";
+import { handleListRequests, handleQueueRequest } from "@/lib/dashboard-requests";
 import { queueRequest } from "@/lib/requests";
 import { jsonRequest, loadFixture, payloadFixture, prepareDatabase, registerFixture, resetDatabase, scanBody } from "./helpers";
 
@@ -214,6 +214,17 @@ describe("dashboard request queueing", () => {
     await getDb().update(deviceRequests).set({ status: "done" }).where(eq(deviceRequests.id, first!.request.id));
     const second = await post(deviceId, { type: "scan_now" });
     expect(second.status).toBe(201);
+  });
+
+  test("lists a device's requests newest first with their state", async () => {
+    const { deviceId } = await registerDevice();
+    await post(deviceId, { type: "scan_now" });
+    await post(deviceId, { type: "send_logs" });
+    const res = await handleListRequests(getDb(), deviceId);
+    const { requests } = (await res.json()) as { requests: Array<{ type: string; status: string; completed_at: string | null }> };
+    expect(requests.map((r) => r.type)).toEqual(["send_logs", "scan_now"]);
+    expect(requests.every((r) => r.status === "pending" && r.completed_at === null)).toBe(true);
+    expect((await handleListRequests(getDb(), "nope")).status).toBe(404);
   });
 
   test("rejects an unknown type (400) and an unknown device (404)", async () => {

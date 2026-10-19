@@ -13,6 +13,32 @@ import (
 // Runner runs a command and returns its stdout.
 type Runner func(ctx context.Context, name string, args ...string) ([]byte, error)
 
+// CollectNetwork runs only the network commands (what ParseNetwork reads).
+func CollectNetwork(ctx context.Context, run Runner) (rd.Set, error) {
+	raw := rd.Set{}
+	for _, o := range []struct {
+		file string
+		cmd  []string
+	}{
+		{PortsFile, []string{"/usr/sbin/networksetup", "-listallhardwareports"}},
+		{IfconfigFile, []string{"/sbin/ifconfig"}},
+		{RouteFile, []string{"/sbin/route", "-n", "get", "default"}},
+		{DNSFile, []string{"/usr/sbin/scutil", "--dns"}},
+	} {
+		b, _ := run(ctx, o.cmd[0], o.cmd[1:]...)
+		raw[o.file] = b
+	}
+	for _, p := range HardwarePorts(string(raw[PortsFile])) {
+		if p.device == "" || strings.HasPrefix(p.device, "bridge") {
+			continue
+		}
+		if b, err := run(ctx, "/usr/sbin/ipconfig", "getsummary", p.device); err == nil {
+			raw[SummaryFile(p.device)] = b
+		}
+	}
+	return raw, nil
+}
+
 // Collect runs system_profiler and the command-line tools, returning one raw file per source.
 func Collect(ctx context.Context, run Runner) (rd.Set, error) {
 	raw := rd.Set{}

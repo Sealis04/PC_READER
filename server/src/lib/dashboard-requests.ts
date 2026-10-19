@@ -1,4 +1,6 @@
+import { desc, eq } from "drizzle-orm";
 import type { Db } from "@/db";
+import { deviceRequests } from "@/db/schema";
 import { HttpError, errorResponse, jsonResponse, readJson } from "@/lib/http";
 import { isRequestType, queueRequest, REQUEST_TYPES } from "@/lib/requests";
 
@@ -27,4 +29,27 @@ export async function handleQueueRequest(req: Request, db: Db, deviceId: string)
     { id: request.id, type: request.type, status: request.status, created_at: request.createdAt.toISOString() },
     queued.created ? 201 : 200,
   );
+}
+
+// GET /api/dashboard/devices/{id}/requests — the device's latest requests, newest first.
+export async function handleListRequests(db: Db, deviceId: string): Promise<Response> {
+  if (!UUID_RE.test(deviceId)) return errorResponse(404, "not_found", "No such device");
+  const rows = await db
+    .select()
+    .from(deviceRequests)
+    .where(eq(deviceRequests.deviceId, deviceId))
+    .orderBy(desc(deviceRequests.createdAt))
+    .limit(20);
+  return jsonResponse({
+    requests: rows.map((r) => ({
+      id: r.id,
+      type: r.type,
+      status: r.status,
+      created_at: r.createdAt.toISOString(),
+      delivered_at: r.deliveredAt?.toISOString() ?? null,
+      completed_at: r.completedAt?.toISOString() ?? null,
+      scan_id: r.scanId,
+      message: r.message,
+    })),
+  });
 }

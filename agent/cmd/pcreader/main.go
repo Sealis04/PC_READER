@@ -9,10 +9,14 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/sealis04/pc_reader/agent/internal/app"
+	"github.com/sealis04/pc_reader/agent/internal/background"
+	"github.com/sealis04/pc_reader/agent/internal/events"
 	"github.com/sealis04/pc_reader/agent/internal/payload"
 	"github.com/sealis04/pc_reader/agent/internal/scan"
 	rd "github.com/sealis04/pc_reader/agent/internal/scan/rawdata"
@@ -30,6 +34,7 @@ Usage:
   pcreader register --server URL --key KEY --name NAME --employee-id ID --department DEPT --accept-policy [options]
   pcreader scan [--upload] [--out FILE] [--type manual|startup|scheduled|on_demand]
   pcreader capture-raw --out DIR
+  pcreader listen [--from-raw DIR]
   pcreader status
   pcreader version
 
@@ -53,6 +58,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		err = cmdScan(ctx, args[1:], stdout, stderr)
 	case "capture-raw":
 		err = cmdCaptureRaw(ctx, args[1:], stdout, stderr)
+	case "listen":
+		err = cmdListen(ctx, args[1:], stdout, stderr)
 	case "status":
 		err = cmdStatus(stdout)
 	case "version", "--version", "-v":
@@ -235,4 +242,41 @@ func cmdStatus(stdout io.Writer) error {
 		fmt.Fprintln(stdout, "Token:       stored")
 	}
 	return nil
+}
+
+// cmdListen runs what the desktop app runs in the background, in the foreground: it holds the
+// events connection and acts on dashboard requests until interrupted. For testing on Linux/CI
+// and for debugging; --from-raw answers scan_now from a saved raw folder instead of scanning.
+func cmdListen(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+	fs := newFlags("listen", stderr)
+	fromRaw := fs.String("from-raw", "", "answer scan_now from this raw-data folder instead of scanning (testing)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	store, err := background.OpenLog()
+	if err != nil {
+		return fmt.Errorf("local log: %w", err)
+	}
+	defer store.Close()
+	svc.Log = func(level, category, msg string) { _ = store.Add(level, category, msg) }
+	if *fromRaw != "" {
+		svc.Scan = func(context.Context) (rd.Set, error) { return rd.Load(*fromRaw) }
+	}
+	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	r := &background.Runner{
+		Svc: svc, Log: store, Version: version,
+		OnStatus: func(s background.Status) { fmt.Fprintln(stdout, "status:", s.Label()) },
+		OnPrompt: func() { fmt.Fprintln(stdout, "IT asked you to confirm your details (open the PC_READER app)") },
+	}
+	fmt.Fprintln(stdout, "Listening for requests from the server. Press Ctrl+C to stop.")
+	err = r.Run(ctx)
+	switch {
+	case errors.Is(err, context.Canceled):
+		return nil
+	case errors.Is(err, events.ErrReregister):
+		return errors.New("the server no longer recognises this computer; register again")
+	}
+	return err
 }

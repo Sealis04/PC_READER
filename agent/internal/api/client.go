@@ -119,6 +119,9 @@ func (c *Client) once(ctx context.Context, method, path, token string, body []by
 	}
 	for _, s := range ok {
 		if res.StatusCode == s {
+			if out == nil {
+				return res.StatusCode, nil
+			}
 			if err := json.Unmarshal(data, out); err != nil {
 				return res.StatusCode, fmt.Errorf("unexpected response from server: %w", err)
 			}
@@ -165,6 +168,29 @@ func (c *Client) UpdateUser(ctx context.Context, token string, u payload.UserDet
 		return nil, err
 	}
 	return &out, nil
+}
+
+// SendNetwork stores a network snapshot (sent when the connection opens and when the network changes).
+func (c *Client) SendNetwork(ctx context.Context, token string, snap payload.NetworkSnapshot) error {
+	_, err := c.do(ctx, http.MethodPost, "/api/agent/network", token, snap, nil, http.StatusNoContent)
+	return err
+}
+
+// UploadLogs sends up to 500 entries and returns the ids the server now holds. A 413 comes back as
+// an *Error with Status 413: split the batch and retry.
+func (c *Client) UploadLogs(ctx context.Context, token string, entries []payload.LogEntry) ([]int64, error) {
+	var out payload.LogsResponse
+	if _, err := c.do(ctx, http.MethodPost, "/api/agent/logs", token, payload.LogsRequest{Entries: entries}, &out, http.StatusOK); err != nil {
+		return nil, err
+	}
+	return out.ReceivedIDs, nil
+}
+
+// CompleteRequest tells the server how a dashboard request went. Repeating it is safe.
+func (c *Client) CompleteRequest(ctx context.Context, token, id string, res payload.RequestComplete) error {
+	var out struct{}
+	_, err := c.do(ctx, http.MethodPost, "/api/agent/requests/"+id+"/complete", token, res, &out, http.StatusOK)
+	return err
 }
 
 // Ping checks that the server answers, without retries: any 2xx or 3xx reply from the

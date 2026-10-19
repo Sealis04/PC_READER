@@ -38,6 +38,44 @@ type Service struct {
 	// Tokens keeps the device token. nil uses config.NewTokenStore().
 	Tokens config.TokenStore
 	Now    func() time.Time
+	// Log records an entry in the local log (level, category, message). nil logs nothing. Messages
+	// must never carry tokens or personal details.
+	Log func(level, category, message string)
+}
+
+func (s *Service) logf(level, category, format string, args ...any) {
+	if s.Log != nil {
+		s.Log(level, category, fmt.Sprintf(format, args...))
+	}
+}
+
+// APIClient returns an API client for the registered server together with the device token.
+func (s *Service) APIClient() (*api.Client, string, error) {
+	cfg, err := config.Load()
+	if err != nil {
+		return nil, "", err
+	}
+	if cfg.DeviceUUID == "" || cfg.ServerURL == "" {
+		return nil, "", ErrNotRegistered
+	}
+	token, err := s.tokens().Get(cfg.DeviceUUID)
+	if err != nil {
+		return nil, "", err
+	}
+	return s.client(cfg.ServerURL), token, nil
+}
+
+// Credentials returns the registered server address and device token.
+func (s *Service) Credentials() (serverURL, token string, err error) {
+	cfg, err := config.Load()
+	if err != nil {
+		return "", "", err
+	}
+	if cfg.DeviceUUID == "" || cfg.ServerURL == "" {
+		return "", "", ErrNotRegistered
+	}
+	token, err = s.tokens().Get(cfg.DeviceUUID)
+	return cfg.ServerURL, token, err
 }
 
 // New returns a Service wired to the real scanners, API client, credential store and clock.
@@ -123,6 +161,7 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (*Registered, 
 	collectedAt := s.now()
 	sc, err := s.Collect(ctx, in.FromRaw)
 	if err != nil {
+		s.logf("error", "scan", "Scan failed during sign-up")
 		return nil, err
 	}
 	cfg, err := config.Load()
@@ -144,6 +183,7 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (*Registered, 
 		User: payload.User{UserDetails: u, PolicyAcknowledged: true},
 	})
 	if err != nil {
+		s.logf("error", "signup", "Registration was not accepted by the server")
 		return nil, fmt.Errorf("registration failed: %w", err)
 	}
 	if err := s.tokens().Set(cfg.DeviceUUID, res.DeviceToken); err != nil {
@@ -157,6 +197,7 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (*Registered, 
 	if err := cfg.Save(); err != nil {
 		return nil, err
 	}
+	s.logf("info", "signup", "Registered this computer")
 	out := &Registered{Hostname: sc.System.Hostname, DeviceID: res.DeviceID}
 	if in.UploadFirstScan {
 		out.ScanID, _, out.UploadErr = s.uploadAndRecord(ctx, cfg, res.DeviceToken, "manual", collectedAt, sc)
@@ -196,8 +237,10 @@ func (s *Service) Upload(ctx context.Context, sc *payload.Scan, collectedAt time
 	}
 	id, dup, err := s.client(serverURL).UploadScan(ctx, token, scanRequest(scanType, collectedAt, sc))
 	if err != nil {
+		s.logf("error", "sync", "Scan upload failed")
 		return "", false, fmt.Errorf("upload failed: %w", err)
 	}
+	s.logf("info", "sync", "Scan uploaded (%s)", scanType)
 	if opt.ServerURL == "" {
 		cfg.RecordReport(s.now(), sc)
 		if err := cfg.Save(); err != nil {
@@ -212,8 +255,10 @@ func (s *Service) Report(ctx context.Context, scanType string) (scanID string, d
 	collectedAt := s.now()
 	sc, err = s.Collect(ctx, "")
 	if err != nil {
+		s.logf("error", "scan", "Scan failed")
 		return "", false, nil, err
 	}
+	s.logf("info", "scan", "Scan completed")
 	scanID, duplicate, err = s.Upload(ctx, sc, collectedAt, UploadOptions{ScanType: scanType})
 	return scanID, duplicate, sc, err
 }
@@ -234,8 +279,10 @@ func (s *Service) UpdateUser(ctx context.Context, u payload.UserDetails) (*paylo
 	}
 	stored, err := s.client(cfg.ServerURL).UpdateUser(ctx, token, trimUser(u))
 	if err != nil {
+		s.logf("error", "update", "Updating details failed")
 		return nil, err
 	}
+	s.logf("info", "update", "Details updated")
 	cfg.User = stored
 	if err := cfg.Save(); err != nil {
 		return nil, err

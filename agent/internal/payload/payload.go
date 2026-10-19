@@ -179,3 +179,52 @@ type ScanRequest struct {
 type ScanResponse struct {
 	ScanID string `json:"scan_id"`
 }
+
+// NetworkSnapshot mirrors contracts/agent-api/network-snapshot.schema.json.
+type NetworkSnapshot struct {
+	CollectedAt    string   `json:"collected_at"`
+	IPAddresses    []string `json:"ip_addresses"`
+	MACAddresses   []string `json:"mac_addresses"`
+	Gateway        *string  `json:"gateway"`
+	DNSServers     []string `json:"dns_servers"`
+	ConnectionType string   `json:"connection_type"` // ethernet, wifi, other
+	SSID           *string  `json:"ssid"`
+}
+
+// LogEntry mirrors one entry of logs.request.
+type LogEntry struct {
+	LocalEntryID int64  `json:"local_entry_id"`
+	LoggedAt     string `json:"logged_at"`
+	Level        string `json:"level"`
+	Category     string `json:"category"`
+	Message      string `json:"message"`
+}
+
+type LogsRequest struct {
+	Entries []LogEntry `json:"entries"`
+}
+
+type LogsResponse struct {
+	ReceivedIDs []int64 `json:"received_ids"`
+}
+
+// Request types a dashboard can queue (events.message).
+const (
+	RequestScanNow             = "scan_now"
+	RequestSendLogs            = "send_logs"
+	RequestPromptDetailsUpdate = "prompt_details_update"
+)
+
+// PendingRequest is the data of a "request" event.
+type PendingRequest struct {
+	ID        string `json:"id"`
+	Type      string `json:"type"`
+	CreatedAt string `json:"created_at"`
+}
+
+// RequestComplete mirrors request-complete.request; the optional fields are omitted when empty.
+type RequestComplete struct {
+	Result  string `json:"result"` // done or failed
+	ScanID  string `json:"scan_id,omitempty"`
+	Message string `json:"message,omitempty"`
+}
