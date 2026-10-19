@@ -5,9 +5,13 @@
 **Reviewer:** not used for M2. **Do not fire the reviewer routine.** When done, open your PR and stop; the planner checks CI and reports to the user.
 **Milestone:** M2 — desktop app demo. Plan: [`plans/m2-desktop-demo/plan.md`](../m2-desktop-demo/plan.md). M1 history: [`plans/m1-thin-slice/inbox-log.md`](../m1-thin-slice/inbox-log.md).
 
-## Branch naming (overrides the routine prompts)
+## Branch to work on (overrides the routine prompts)
 
-Git cannot hold both `ccr-510da39c-6w5qgz` and `ccr-510da39c-6w5qgz/builder-1` (`cannot lock ref`). Wherever your prompt says `<branch>/builder-1`, use **`ccr-510da39c-6w5qgz-builder-1`** instead: create it with `git checkout -b ccr-510da39c-6w5qgz-builder-1`, push it with `git push -u origin ccr-510da39c-6w5qgz-builder-1`, and open the PR from it into `ccr-510da39c-6w5qgz`.
+Your session is assigned its own branch (e.g. `claude/<name>`) and must not push elsewhere. **Use that assigned branch as your working branch** instead of `<branch>/builder-1` (which Git cannot create next to `ccr-510da39c-6w5qgz` anyway):
+
+1. `git fetch origin ccr-510da39c-6w5qgz && git checkout -B <your-assigned-branch> origin/ccr-510da39c-6w5qgz` (your assigned branch starts from `main`; reset it onto the feature branch before working)
+2. Commit and push only to your assigned branch: `git push -u origin <your-assigned-branch>` (use `--force-with-lease` once after the reset if the push is rejected)
+3. Open the PR from your assigned branch into `ccr-510da39c-6w5qgz`.
 
 ## Repo conventions
 
