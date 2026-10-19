@@ -1,6 +1,6 @@
 # builder-1 tasks — Milestone 2 (desktop app demo)
 
-**Current task: the FIX REQUEST (round 3) at the top of `../INBOX.md`** (hide console windows on Windows; clearer IT-setup error). Base your work on `origin/claude/cool-volta-w8ogw1` (PR #2).
+**Current task: the FIX REQUEST (round 5) at the top of `../INBOX.md`** (Settings = server address only, behind the one-time PIN). Base your work on `origin/claude/cool-volta-7qyt93` (round 4).
 
 **Repository:** `Sealis04/PC_READER` (https://github.com/Sealis04/PC_READER). If your working directory is a different repository, switch to a checkout of this one first (`git remote -v` must show Sealis04/PC_READER).
 **Feature branch:** `ccr-510da39c-6w5qgz`

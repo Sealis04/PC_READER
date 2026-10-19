@@ -20,7 +20,29 @@ See the repo `CLAUDE.md`. In short: bun + Drizzle (no Prisma, no `db:push`/`db:g
 
 ---
 
-## builder-1 — QUEUED: round 4 (start only when the planner fires you for it)
+## builder-1 — FIX REQUEST (2026-10-19, round 5)
+
+Base: round 4 (`claude/cool-volta-7qyt93`, commit fec66aa, CI green). The user clarified how settings and the PIN should work.
+
+**What the user wants:**
+- The **IT PIN is a one-time setup**: set once during IT setup and **not changeable from the app**.
+- The PIN **locks a "Settings" screen** whose only job is changing the **server address**.
+- **User details** ("Update my details") are a separate user feature. Keep them as they are.
+
+**Changes:**
+1. Rename "IT settings" to **"Settings"** (link text on My computer and the screen title). Keep the PIN prompt and the 5-tries / 60-second lockout.
+2. After the PIN, Settings shows **only the server address** with "Check connection" and Save. **Remove** the "Register this computer again" and "Change the IT PIN" cards, and remove the change-PIN bound method and its tests (or leave it unexported and unused, but not reachable from the UI).
+3. Keep the error path where the server rejects this computer's token (401): the banner on My computer still offers re-registration behind the PIN. It's not a setting.
+4. "Update my details" stays unchanged and reachable from My computer for the user (no PIN).
+5. Update `agent/README.md`. If IT forgets the PIN, the documented reset is deleting `config.json` in the app data folder and running IT setup again.
+
+**Done when:** CI is green on your PR (desktop jobs included).
+
+**Branching:** reset your assigned branch onto `origin/claude/cool-volta-7qyt93`, implement, push, and **open a PR into `ccr-510da39c-6w5qgz`** that supersedes #3 and round 4. Opening the PR is required this time. Do not fire the reviewer.
+
+---
+
+## builder-1 — round 4 (DONE on claude/cool-volta-7qyt93)
 
 Base: the PR from round 3 (supersedes #2). Requested by the user after testing on a real PC.
 
