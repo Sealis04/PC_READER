@@ -83,3 +83,7 @@ docker-compose.yml    # app + postgres for local testing
 - WMI / `system_profiler` keys differ from expectations → parsers are pure and fixture-driven; real captures from Phase 2 replace samples.
 - Wi-Fi SSID needs Location permission → stored as `null`, not an error.
 - Unsigned macOS binary blocked by Gatekeeper → ad-hoc signature + "Open Anyway" instructions in the README.
+
+## After M1: desktop UI (Milestone 2)
+
+Decided 2026-10-19: finish the real-machine CLI test and any scanner fixes first, then plan Milestone 2. M2 scope from the spec: Wails desktop app (signup form with data-use notice, specs summary, "update my details", "report now"), the background reporter as a Windows Service / macOS LaunchAgent (24-hour report with catch-up, 5-minute `/checkin`, `/logs` upload), and staff login on the dashboard.
