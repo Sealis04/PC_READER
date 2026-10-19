@@ -6,7 +6,7 @@
 - builder-1: `PUT /api/agent/user`, agent service layer, Wails desktop app, desktop CI builds
 
 ## Queued
-- Reviewer pass on builder-1's PR
+- Planner checks builder-1's PR and CI; user reviews and merges
 - Real-machine demo of the desktop app on Windows (and a Mac)
 
 ## Open items

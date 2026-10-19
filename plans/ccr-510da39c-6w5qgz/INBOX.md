@@ -2,11 +2,12 @@
 
 **Feature branch:** `ccr-510da39c-6w5qgz`
 **Active builders:** builder-1 only
+**Reviewer:** not used for M2. **Do not fire the reviewer routine.** When done, open your PR and stop; the planner checks CI and reports to the user.
 **Milestone:** M2 — desktop app demo. Plan: [`plans/m2-desktop-demo/plan.md`](../m2-desktop-demo/plan.md). M1 history: [`plans/m1-thin-slice/inbox-log.md`](../m1-thin-slice/inbox-log.md).
 
 ## Branch naming (overrides the routine prompts)
 
-Git cannot hold both `ccr-510da39c-6w5qgz` and `ccr-510da39c-6w5qgz/builder-1`. Use **`ccr-510da39c-6w5qgz-builder-1`** as builder-1's working branch, and open the PR from it into `ccr-510da39c-6w5qgz`. Reviewer: merge `origin/ccr-510da39c-6w5qgz-builder-1`.
+Git cannot hold both `ccr-510da39c-6w5qgz` and `ccr-510da39c-6w5qgz/builder-1` (`cannot lock ref`). Wherever your prompt says `<branch>/builder-1`, use **`ccr-510da39c-6w5qgz-builder-1`** instead: create it with `git checkout -b ccr-510da39c-6w5qgz-builder-1`, push it with `git push -u origin ccr-510da39c-6w5qgz-builder-1`, and open the PR from it into `ccr-510da39c-6w5qgz`.
 
 ## Repo conventions
 
@@ -31,4 +32,4 @@ You cannot run the GUI in your container. Verify with unit tests of the bound me
 
 ## reviewer
 
-Review the builder-1 PR (`ccr-510da39c-6w5qgz-builder-1` → `ccr-510da39c-6w5qgz`). For E2E in this repo: start Postgres, `bun install`, `cd server && bun run db:migrate && bun run dev`, then call the agent API (register → scans → `PUT /api/agent/user`) and check the dashboard pages; run `cd agent && go test -count=1 ./...` and the agent end-to-end test (`PCREADER_E2E_SERVER=http://127.0.0.1:3000 PCREADER_E2E_KEY=<ENROLLMENT_KEY> go test -count=1 -run TestEndToEnd ./cmd/pcreader`). The desktop GUI can only be checked through its unit tests and the CI build artifacts.
+Not used for M2. builder-1: still write your summary here under `### From builder-1` (files changed, what was done, what to check), then stop.
