@@ -1,0 +1,16 @@
+{
+  "enrollment_key": "sample-enrollment-key",
+  "device_uuid": "6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b",
+  "os_type": "windows",
+  "hostname": "AGY-PC-0123",
+  "hardware_summary": { "manufacturer": "Dell Inc.", "model": "OptiPlex 7010", "serial_number": "SAMPLE7X" },
+  "user": {
+    "full_name": "Juan Dela Cruz",
+    "employee_id": "EMP-0001",
+    "email": "juan.delacruz@example.gov.ph",
+    "department": "Finance",
+    "position": "Accountant II",
+    "phone": "+63 917 000 0001",
+    "policy_acknowledged": true
+  }
+}

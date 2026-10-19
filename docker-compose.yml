@@ -1,0 +1,48 @@
+# Local test server for Milestone 1. Copy .env.example to .env and set ENROLLMENT_KEY first.
+# Agents on the LAN reach it at http://<this computer's IP>:3000
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: pcreader
+      POSTGRES_USER: pcreader
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pcreader}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pcreader -d pcreader"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
+  migrate:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+      target: migrate
+    environment:
+      DATABASE_URL: postgres://pcreader:${POSTGRES_PASSWORD:-pcreader}@db:5432/pcreader
+    depends_on:
+      db:
+        condition: service_healthy
+
+  app:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+      target: app
+    environment:
+      DATABASE_URL: postgres://pcreader:${POSTGRES_PASSWORD:-pcreader}@db:5432/pcreader
+      ENROLLMENT_KEY: ${ENROLLMENT_KEY:?Set ENROLLMENT_KEY in .env}
+      CHECKIN_INTERVAL_SECONDS: ${CHECKIN_INTERVAL_SECONDS:-300}
+      DISPLAY_TIMEZONE: ${DISPLAY_TIMEZONE:-Asia/Manila}
+    ports:
+      - "0.0.0.0:3000:3000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+volumes:
+  pgdata:

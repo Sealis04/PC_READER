@@ -1,0 +1,10 @@
+{
+  "SPMemoryDataType": [
+    {
+      "_name": "SPMemoryDataType",
+      "SPMemoryDataType": "16 GB",
+      "dimm_manufacturer": "Hynix",
+      "dimm_type": "LPDDR5"
+    }
+  ]
+}

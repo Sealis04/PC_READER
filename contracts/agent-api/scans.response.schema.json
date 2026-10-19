@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pcreader.internal/contracts/agent-api/scans.response.schema.json",
+  "title": "POST /api/agent/scans 201 or 409 response",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["scan_id"],
+  "properties": {
+    "scan_id": { "type": "string", "format": "uuid" }
+  }
+}

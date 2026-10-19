@@ -1,0 +1,124 @@
+name: agent
+
+on:
+  push:
+    paths: ["agent/**", "contracts/**", "server/**", ".github/workflows/agent.yml"]
+  pull_request:
+    paths: ["agent/**", "contracts/**", "server/**", ".github/workflows/agent.yml"]
+  workflow_dispatch:
+
+defaults:
+  run:
+    working-directory: agent
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: pcreader_e2e
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: agent/go.mod
+          cache-dependency-path: agent/go.sum
+      - name: gofmt
+        run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
+      - name: go vet (linux, windows, darwin)
+        run: go vet ./... && GOOS=windows go vet ./... && GOOS=darwin go vet ./...
+      - run: go test -count=1 ./...
+
+      # End-to-end: real server + database, agent CLI registers and uploads the raw fixtures.
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - name: Start server
+        working-directory: .
+        env:
+          DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/pcreader_e2e
+          ENROLLMENT_KEY: e2e-key
+          NEXT_TELEMETRY_DISABLED: "1"
+        run: |
+          bun install --frozen-lockfile
+          cd server
+          bun run db:migrate
+          bun run build
+          PORT=3100 nohup bun run start > ../server.log 2>&1 &
+          for i in $(seq 1 60); do curl -sf -o /dev/null http://127.0.0.1:3100/devices && exit 0; sleep 1; done
+          cat ../server.log; exit 1
+      - name: End-to-end test
+        env:
+          PCREADER_E2E_SERVER: http://127.0.0.1:3100
+          PCREADER_E2E_KEY: e2e-key
+        run: go test -count=1 -run TestEndToEnd -v ./cmd/pcreader
+
+  # Scans the GitHub-hosted Windows and macOS runners with the real collectors.
+  live-scan:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: agent/go.mod
+          cache-dependency-path: agent/go.sum
+      - name: Live scan
+        env:
+          PCREADER_LIVE_SCAN: "1"
+          PCREADER_LIVE_SCAN_OUT: ${{ runner.temp }}/live-scan
+        run: go test -count=1 -run TestLiveScan -v ./internal/scan
+      - name: Show raw output
+        if: always()
+        shell: bash
+        run: |
+          for f in "$RUNNER_TEMP"/live-scan/raw/* "$RUNNER_TEMP"/live-scan/payload.json; do
+            [ -f "$f" ] || continue
+            echo "::group::$(basename "$f")"; head -c 20000 "$f"; echo; echo "::endgroup::"
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: live-scan-${{ matrix.os }}
+          path: ${{ runner.temp }}/live-scan
+          if-no-files-found: ignore
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: agent/go.mod
+          cache-dependency-path: agent/go.sum
+      - name: Cross-compile
+        run: |
+          VERSION="0.1.0+${GITHUB_SHA::7}"
+          mkdir -p dist
+          for target in windows/amd64 darwin/arm64 darwin/amd64; do
+            os=${target%/*}; arch=${target#*/}; ext=""
+            [ "$os" = windows ] && ext=.exe
+            CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath \
+              -ldflags "-s -w -X main.version=$VERSION" \
+              -o "dist/pcreader-$os-$arch$ext" ./cmd/pcreader
+          done
+          (cd dist && sha256sum * > SHA256SUMS)
+          ls -l dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pcreader-binaries
+          path: agent/dist

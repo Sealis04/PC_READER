@@ -1,0 +1,18 @@
+[
+    {
+        "DeviceID": "C:",
+        "VolumeName": "OS",
+        "FileSystem": "NTFS",
+        "Size": 510770802688,
+        "FreeSpace": 312475926528,
+        "DriveType": 3
+    },
+    {
+        "DeviceID": "D:",
+        "VolumeName": "Data",
+        "FileSystem": "NTFS",
+        "Size": 1000202039296,
+        "FreeSpace": 850123456512,
+        "DriveType": 3
+    }
+]

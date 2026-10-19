@@ -1,0 +1,14 @@
+{
+  "name": "pc-reader",
+  "private": true,
+  "workspaces": [
+    "contracts",
+    "server"
+  ],
+  "scripts": {
+    "lint": "bun run --filter '*' lint && bun run lint:agent",
+    "lint:agent": "cd agent && go vet ./... && test -z \"$(gofmt -l .)\"",
+    "test": "bun run --filter @pcreader/contracts test && bun run --filter @pcreader/server test && bun run test:agent",
+    "test:agent": "cd agent && go test -count=1 ./..."
+  }
+}

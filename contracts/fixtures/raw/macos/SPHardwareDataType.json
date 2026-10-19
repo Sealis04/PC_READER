@@ -1,0 +1,19 @@
+{
+  "SPHardwareDataType": [
+    {
+      "_name": "hardware_overview",
+      "activation_lock_status": "activation_lock_disabled",
+      "boot_rom_version": "10151.140.19",
+      "chip_type": "Apple M2",
+      "machine_model": "Mac14,2",
+      "machine_name": "MacBook Air",
+      "model_number": "Z15S000BXLL/A",
+      "number_processors": "proc 8:4:4",
+      "os_loader_version": "10151.140.19",
+      "physical_memory": "16 GB",
+      "platform_UUID": "8A1B2C3D-4E5F-5A6B-8C7D-9E0F1A2B3C4D",
+      "provisioning_UDID": "00008112-000A1B2C3D4E5F6G",
+      "serial_number": "SAMPLEM2XYZ"
+    }
+  ]
+}

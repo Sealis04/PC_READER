@@ -1,0 +1,23 @@
+{
+  "SPNVMeDataType": [
+    {
+      "_name": "Apple SSD Controller",
+      "_items": [
+        {
+          "_name": "APPLE SSD AP0512Z",
+          "bsd_name": "disk0",
+          "detachable_drive": "no",
+          "device_model": "APPLE SSD AP0512Z",
+          "device_revision": "532.140.",
+          "device_serial": "SAMPLE0512Z0001",
+          "partition_map_type": "guid_partition_map_type",
+          "removable_media": "no",
+          "size": "500.28 GB",
+          "size_in_bytes": 500277790720,
+          "smart_status": "Verified",
+          "spnvme_trim_support": "Yes"
+        }
+      ]
+    }
+  ]
+}
