@@ -21,9 +21,14 @@ import (
 // Notice is the data-use notice shown before anyone registers (CLI and desktop app).
 const Notice = `Data-use notice: PC_READER records your name, employee ID, department, position,
 email and phone, plus this computer's hardware specs and basic network details
-(IP and MAC addresses, gateway, DNS, Wi-Fi network name). It does not record
-browsing, keystrokes, screenshots, files or location. IT uses this data only to
-manage agency equipment.`
+(IP and MAC addresses, gateway, DNS, Wi-Fi network name). The app starts when you
+log in and keeps a quiet connection to the server so IT can see that this computer
+is online, when it was last seen and which app version it runs, and can ask it for
+a new scan, its app activity log (what PC_READER did, such as "scan completed") or
+for you to confirm your details. Your network details are sent when the app
+connects and whenever your network changes. It does not record browsing,
+keystrokes, screenshots, files or location. IT uses this data only to manage
+agency equipment.`
 
 // ErrNotRegistered means there is no saved registration to report or update with.
 var ErrNotRegistered = errors.New("this computer is not registered yet; run `pcreader register` first")
