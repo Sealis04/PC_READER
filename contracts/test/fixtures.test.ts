@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { formatErrors, validateRegisterRequest, validateScanPayload, validateScansRequest } from "../index";
+import { formatErrors, validateRegisterRequest, validateScanPayload, validateScansRequest, validateUserRequest } from "../index";
 
 const fixtures = join(import.meta.dir, "..", "fixtures");
 const load = (rel: string) => JSON.parse(readFileSync(join(fixtures, rel), "utf8"));
@@ -33,6 +33,23 @@ describe("register fixtures", () => {
       expect(ok).toBe(true);
     });
   }
+});
+
+describe("user fixtures", () => {
+  for (const name of files("user")) {
+    test(`${name} matches user.request`, () => {
+      const ok = validateUserRequest(load(`user/${name}`));
+      expect(formatErrors(validateUserRequest.errors)).toEqual([]);
+      expect(ok).toBe(true);
+    });
+  }
+
+  test("user.request needs the six detail fields and no policy flag", () => {
+    const u = load("user/windows-desktop.json");
+    expect(validateUserRequest({ ...u, policy_acknowledged: true })).toBe(false);
+    delete u.department;
+    expect(validateUserRequest(u)).toBe(false);
+  });
 });
 
 describe("schema rules", () => {
