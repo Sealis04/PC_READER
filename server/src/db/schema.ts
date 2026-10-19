@@ -32,6 +32,7 @@ export const deviceStatus = pgEnum("device_status", [
   "disposed",
   "lost",
 ]);
+export const deviceHistoryField = pgEnum("device_history_field", ["inventory_number", "location"]);
 export const componentCategory = pgEnum("component_category", [
   "cpu",
   "ram",
@@ -65,7 +66,7 @@ export const devices = pgTable(
   {
     ...base,
     deviceUuid: uuid("device_uuid").notNull().unique(),
-    inventoryNumber: text("inventory_number").unique(),
+    inventoryNumber: text("inventory_number"),
     hostname: text("hostname").notNull(),
     osType: osType("os_type").notNull(),
     deviceType: text("device_type"),
@@ -85,8 +86,56 @@ export const devices = pgTable(
     connectionId: uuid("connection_id"),
     connectedAt: timestamp("connected_at", { withTimezone: true }),
   },
-  (t) => [uniqueIndex("devices_token_hash_idx").on(t.tokenHash), index("devices_last_seen_idx").on(t.lastSeenAt)],
+  (t) => [
+    uniqueIndex("devices_token_hash_idx").on(t.tokenHash),
+    index("devices_last_seen_idx").on(t.lastSeenAt),
+    // Inventory numbers are unique regardless of case ("ia-2026-00001" is "IA-2026-00001").
+    uniqueIndex("devices_inventory_number_lower_idx").on(sql`lower(${t.inventoryNumber})`),
+    index("devices_status_idx").on(t.status),
+  ],
 );
+
+// Append-only: one row per device status change (changed_by is null until the dashboard has staff login).
+export const statusHistory = pgTable(
+  "status_history",
+  {
+    ...base,
+    deviceId: uuid("device_id")
+      .notNull()
+      .references(() => devices.id, { onDelete: "cascade" }),
+    oldStatus: deviceStatus("old_status").notNull(),
+    newStatus: deviceStatus("new_status").notNull(),
+    changedBy: text("changed_by"),
+    changedAt: timestamp("changed_at", { withTimezone: true }).notNull().defaultNow(),
+    reason: text("reason"),
+  },
+  (t) => [index("status_history_device_idx").on(t.deviceId, t.changedAt)],
+);
+
+// Append-only: one row per change of a device's inventory number or location (null = not set).
+export const deviceFieldHistory = pgTable(
+  "device_field_history",
+  {
+    ...base,
+    deviceId: uuid("device_id")
+      .notNull()
+      .references(() => devices.id, { onDelete: "cascade" }),
+    field: deviceHistoryField("field").notNull(),
+    oldValue: text("old_value"),
+    newValue: text("new_value"),
+    changedBy: text("changed_by"),
+    changedAt: timestamp("changed_at", { withTimezone: true }).notNull().defaultNow(),
+    reason: text("reason"),
+  },
+  (t) => [index("device_field_history_device_idx").on(t.deviceId, t.changedAt)],
+);
+
+// Highest generated (or typed, pattern-matching) inventory number per year. Only ever raised, so a
+// number is never issued twice.
+export const inventoryCounters = pgTable("inventory_counters", {
+  year: integer("year").primaryKey(),
+  lastValue: integer("last_value").notNull(),
+});
 
 export const components = pgTable(
   "components",
