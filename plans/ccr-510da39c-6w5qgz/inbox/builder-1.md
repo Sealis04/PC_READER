@@ -1,5 +1,7 @@
 # builder-1 tasks — Milestone 2 (desktop app demo)
 
+**Current task: the FIX REQUEST at the top of `../INBOX.md`** (desktop builds fail at Wails binding generation). Base your work on `origin/claude/cool-volta-4q6iev`.
+
 **Repository:** `Sealis04/PC_READER` (https://github.com/Sealis04/PC_READER). If your working directory is a different repository, switch to a checkout of this one first (`git remote -v` must show Sealis04/PC_READER).
 **Feature branch:** `ccr-510da39c-6w5qgz`
 

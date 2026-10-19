@@ -20,6 +20,26 @@ See the repo `CLAUDE.md`. In short: bun + Drizzle (no Prisma, no `db:push`/`db:g
 
 ---
 
+## builder-1 — FIX REQUEST (2026-10-19, round 2)
+
+PR #1 (`claude/cool-volta-4q6iev` → `ccr-510da39c-6w5qgz`) is complete except the desktop builds. Both `desktop (windows-latest)` and `desktop (macos-latest)` fail in `wails build` at **Generating bindings**:
+
+```
+package github.com/sealis04/pc_reader/agent/desktop: build constraints exclude all Go files in .../agent/desktop
+```
+
+Wails' bindings generator compiles `agent/desktop` without the `desktop` tag, so the `//go:build desktop` constraint hides `main.go`. The frontend imports the generated `wailsjs/go/bound/App`, so bindings can't be skipped.
+
+**Fix (pick one, keep the reason in a code comment):**
+- Preferred: make `agent/desktop` its own Go module (`module github.com/sealis04/pc_reader/agent/desktop`, `replace github.com/sealis04/pc_reader/agent => ../`), drop the build tag and `build:tags`. Go's `internal/` rule is path-based, so it can still import `agent/internal/...`. Keep `bound` unit-tested: move it into the agent module (e.g. `agent/internal/bound`, package name still `bound` so `wailsjs/go/bound/App` doesn't change) or run its tests from the new module in CI.
+- Or: drop the tag and exclude `./desktop` from Linux `go vet` / `go test` in CI and the root scripts.
+
+**Done when:** both CI desktop jobs build and the `pcreader-desktop` artifact is uploaded; the `test`, `live-scan`, `build` jobs and the server workflow stay green; `bun run lint` and `bun run test` pass.
+
+**Branching:** you cannot push to `claude/cool-volta-4q6iev`. Reset your assigned branch onto `origin/claude/cool-volta-4q6iev` (not the feature branch), add the fix, push, and open a new PR into `ccr-510da39c-6w5qgz` that says it supersedes #1. Check the CI result on your PR before you stop. Do not fire the reviewer.
+
+---
+
 ## builder-1
 
 Implement sections 1–4 of `plans/m2-desktop-demo/plan.md`, in order, as separate commits:
