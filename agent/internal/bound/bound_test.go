@@ -386,9 +386,6 @@ func TestITSettingsNeedThePin(t *testing.T) {
 	if res := a.SaveServerURL(f.URL); res.OK {
 		t.Fatal("server URL changed without the PIN")
 	}
-	if res := a.ChangePIN("5678", "5678"); res.OK {
-		t.Fatal("PIN changed without the PIN")
-	}
 	if st := a.StartReregistration(); st.Screen != "home" {
 		t.Fatalf("re-registration without the PIN: %+v", st)
 	}
@@ -439,7 +436,7 @@ func TestWrongPinLocksFor60SecondsAfterFiveTries(t *testing.T) {
 	}
 }
 
-func TestITSettingsChangeServerURLAndPin(t *testing.T) {
+func TestSettingsChangeServerURL(t *testing.T) {
 	a, f := registeredWithPin(t)
 	a.UnlockITSettings("1234")
 
@@ -464,26 +461,16 @@ func TestITSettingsChangeServerURLAndPin(t *testing.T) {
 		t.Fatal("unreachable address was saved")
 	}
 
-	if res := a.ChangePIN("12", "12"); res.OK || res.FieldErrors["pin"] == "" {
-		t.Fatalf("%+v", res)
-	}
-	if res := a.ChangePIN("9876", "9875"); res.OK || res.FieldErrors["pinAgain"] == "" {
-		t.Fatalf("%+v", res)
-	}
-	if res := a.ChangePIN("9876", "9876"); !res.OK {
-		t.Fatalf("%+v", res)
-	}
-	if txt := configText(t); strings.Contains(txt, "9876") || strings.Contains(txt, "1234\"") {
+	if txt := configText(t); strings.Contains(txt, "1234\"") {
 		t.Fatalf("PIN in config.json:\n%s", txt)
 	}
 	a.LockITSettings()
-	if res := a.UnlockITSettings("1234"); res.OK {
-		t.Fatal("old PIN still works")
+	if res := a.SaveServerURL(f.URL); res.OK {
+		t.Fatal("server address changed while locked")
 	}
-	if res := a.UnlockITSettings("9876"); !res.OK {
-		t.Fatalf("%+v", res)
+	if res := a.UnlockITSettings("1234"); !res.OK {
+		t.Fatalf("PIN no longer works: %+v", res)
 	}
-	_ = f
 }
 
 func TestReregisterThroughITSettingsKeepsPin(t *testing.T) {

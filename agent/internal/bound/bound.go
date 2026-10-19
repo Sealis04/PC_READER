@@ -154,7 +154,7 @@ func (a *App) CheckConnection(serverURL, key, pin, pinAgain string) Result {
 	hasPin := status.ITPin != nil
 	needKey, needPin := a.setupNeeds(status.Registered, hasPin)
 	if !needKey && hasPin {
-		return fail("IT setup is already done on this computer. Use IT settings.")
+		return fail("IT setup is already done on this computer. Use Settings.")
 	}
 	errs := map[string]string{}
 	if needKey && strings.TrimSpace(key) == "" {
@@ -317,29 +317,9 @@ func (a *App) SaveServerURL(serverURL string) Result {
 	return Result{OK: true, Message: "Saved. Connected to " + u + "."}
 }
 
-// ChangePIN replaces the IT PIN (entered twice) while IT settings are unlocked.
-func (a *App) ChangePIN(pin, pinAgain string) Result {
-	if !a.isUnlocked() {
-		return errLocked
-	}
-	switch {
-	case !config.ValidPin(pin):
-		return Result{Message: "Use 4 to 8 digits.", FieldErrors: map[string]string{"pin": "Use 4 to 8 digits"}}
-	case pin != pinAgain:
-		return Result{Message: "The two PINs are not the same.", FieldErrors: map[string]string{"pinAgain": "The two PINs are not the same"}}
-	}
-	h, err := config.NewPinHash(pin)
-	if err == nil {
-		err = a.svc.SetITPin(h)
-	}
-	if err != nil {
-		return fail("The PIN could not be saved: " + err.Error())
-	}
-	return Result{OK: true, Message: "The IT PIN was changed."}
-}
-
 // StartReregistration returns to the IT setup screen (enrollment key and signup, keeping the
-// PIN), with the saved details as the signup prefill. It needs the IT settings unlocked.
+// PIN), with the saved details as the signup prefill. It needs the PIN entered first. The PIN
+// is set once during IT setup and cannot be changed from the app.
 func (a *App) StartReregistration() State {
 	a.mu.Lock()
 	if a.unlocked {
