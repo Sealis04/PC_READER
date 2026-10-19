@@ -4,7 +4,7 @@ import { asc, eq } from "drizzle-orm";
 import { closeDb, getDb } from "@/db";
 import { deviceFieldHistory, devices, inventoryCounters, statusHistory } from "@/db/schema";
 import { handleRegister } from "@/lib/agent/register";
-import { getDeviceHistory } from "@/lib/queries";
+import { getDeviceHistory, listDepartments, listDevices } from "@/lib/queries";
 import { handleInventoryAction } from "@/lib/dashboard-inventory";
 import { assignNextNumber, changeStatus, clearInventoryNumber, inventoryYear, InventoryError, parseGeneratedNumber, setInventoryNumber, setLocation } from "@/lib/inventory";
 import { jsonRequest, prepareDatabase, registerFixture, resetDatabase } from "./helpers";
@@ -202,5 +202,62 @@ describe("getDeviceHistory", () => {
     expect(events[2]).toMatchObject({ from: "in_use", to: "spare", reason: "returned", by: null });
     expect(events[3].to).toMatch(/\(E-A\)$/);
     for (let i = 1; i < events.length; i++) expect(events[i - 1].at.getTime()).toBeGreaterThanOrEqual(events[i].at.getTime());
+  });
+});
+
+describe("listDevices filters and search", () => {
+  async function seed() {
+    const db = getDb();
+    const [a, b, c] = await Promise.all([newDevice("ALPHA"), newDevice("BRAVO"), newDevice("CHARLIE")]);
+    await setInventoryNumber(db, a, "IA-2026-00007");
+    await setInventoryNumber(db, b, "OLD-100%");
+    await db.update(devices).set({ serialNumber: "SN-XYZ-1", location: "Room 1" }).where(eq(devices.id, a));
+    await db.update(devices).set({ osType: "macos", online: true }).where(eq(devices.id, b));
+    await changeStatus(db, c, "spare");
+    return { a, b, c };
+  }
+  const hosts = async (f: Parameters<typeof listDevices>[1]) => (await listDevices(getDb(), f)).map((d) => d.hostname);
+
+  test("filters by status, OS and online state, combined", async () => {
+    await seed();
+    expect(await hosts({ status: "spare" })).toEqual(["CHARLIE"]);
+    expect(await hosts({ os: "macos" })).toEqual(["BRAVO"]);
+    expect(await hosts({ connection: "online" })).toEqual(["BRAVO"]);
+    expect(await hosts({ status: "in_use", os: "windows" })).toEqual(["ALPHA"]);
+    expect(await hosts({ status: "lost" })).toEqual([]);
+  });
+
+  test("filters by the assigned user's department", async () => {
+    const { a } = await seed();
+    const [row] = (await listDevices(getDb())).filter((d) => d.id === a);
+    expect(row.department).toBeTruthy();
+    expect(await listDepartments(getDb())).toContain(row.department!);
+    expect(await hosts({ department: row.department! })).toHaveLength(3);
+    expect(await hosts({ department: "No such dept" })).toEqual([]);
+  });
+
+  test("searches number, hostname, serial, user name and employee ID, case-insensitively", async () => {
+    await seed();
+    const [row] = await listDevices(getDb(), { q: "alpha" });
+    expect(await hosts({ q: "ia-2026-00007" })).toEqual(["ALPHA"]);
+    expect(await hosts({ q: "00007" })).toEqual(["ALPHA"]);
+    expect(await hosts({ q: "bravo" })).toEqual(["BRAVO"]);
+    expect(await hosts({ q: "sn-xyz" })).toEqual(["ALPHA"]);
+    expect(await hosts({ q: "E-CHARLIE" })).toEqual(["CHARLIE"]);
+    expect(await hosts({ q: row.userName!.slice(1, 5).toUpperCase() })).toHaveLength(3);
+    expect(await hosts({ q: "  nothing-matches " })).toEqual([]);
+  });
+
+  test("% and _ in the search are literal", async () => {
+    await seed();
+    expect(await hosts({ q: "100%" })).toEqual(["BRAVO"]);
+    expect(await hosts({ q: "%" })).toEqual(["BRAVO"]);
+    expect(await hosts({ q: "_" })).toEqual([]);
+  });
+
+  test("rows carry number, status and location", async () => {
+    await seed();
+    const [row] = await listDevices(getDb(), { q: "alpha" });
+    expect(row).toMatchObject({ inventoryNumber: "IA-2026-00007", status: "in_use", location: "Room 1" });
   });
 });
