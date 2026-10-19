@@ -32,7 +32,7 @@ A computer registered with the CLI (which stores no user details locally) opens 
 
 Builds are unsigned:
 - **Windows:** SmartScreen may warn: *More info → Run anyway*. The app needs the WebView2 runtime (included in current Windows 10/11; older machines need the Evergreen runtime from Microsoft).
-- **macOS:** unzip, then the first launch is blocked by Gatekeeper: open *System Settings → Privacy & Security* and choose *Open Anyway* (needed on each Mac), or run `xattr -dr com.apple.quarantine pcreader-desktop.app`.
+- **macOS:** unzip, then the first launch is blocked by Gatekeeper: open *System Settings → Privacy & Security* and choose *Open Anyway* (needed on each Mac), or run `xattr -dr com.apple.quarantine PC_READER.app`.
 
 **Build locally** (Windows or macOS only; needs Go, bun and the Wails CLI `go install github.com/wailsapp/wails/v2/cmd/wails@v2.10.2`, plus WebView2 on Windows or Xcode command-line tools on macOS):
 

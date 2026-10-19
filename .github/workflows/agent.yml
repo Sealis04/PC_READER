@@ -171,7 +171,7 @@ jobs:
         run: |
           mkdir -p ../dist-desktop
           # zip keeps the executable bit and bundle structure that upload-artifact would drop
-          ditto -c -k --keepParent build/bin/pcreader-desktop.app ../dist-desktop/pcreader-desktop-macos.zip
+          ditto -c -k --keepParent build/bin/PC_READER.app ../dist-desktop/pcreader-desktop-macos.zip
       - uses: actions/upload-artifact@v4
         with:
           name: pcreader-desktop-${{ matrix.name }}
