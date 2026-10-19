@@ -3,14 +3,14 @@
 **Repository:** `Sealis04/PC_READER` — if your working directory is another repository, switch to a checkout of this one (`git remote -v`).
 **Feature branch:** `ccr-510da39c-6w5qgz`
 **Active builders:** builder-1 only
-**Reviewer:** not used for M4. **Do not fire the reviewer routine.** When done, open your PR and stop; the planner checks CI and reports to the user.
-**Milestone:** M4 — inventory numbers and statuses. Plan: [`plans/m4-inventory-tags/plan.md`](../m4-inventory-tags/plan.md). History: [`plans/m1-thin-slice/inbox-log.md`](../m1-thin-slice/inbox-log.md), [`plans/m2-desktop-demo/inbox-log.md`](../m2-desktop-demo/inbox-log.md), [`plans/m3-background-reporter/inbox-log.md`](../m3-background-reporter/inbox-log.md).
+**Reviewer:** not used for M5. **Do not fire the reviewer routine.** When done, open your PR and stop; the planner checks CI and reports to the user.
+**Milestone:** M5 — hourly IT PIN from the dashboard. Plan: [`plans/m5-hourly-it-pin/plan.md`](../m5-hourly-it-pin/plan.md). History: `plans/m{1..4}-*/inbox-log.md`.
 
 ## Branch to work on (overrides the routine prompts)
 
 Your session is assigned its own branch (e.g. `claude/<name>`) and must not push elsewhere. Use that assigned branch as your working branch:
 
-1. `git fetch origin claude/fervent-mendel-9y30q4 && git checkout -B <your-assigned-branch> origin/claude/fervent-mendel-9y30q4` — that branch is `ccr-510da39c-6w5qgz` (M3 merged) plus the M4 plan and this INBOX.
+1. `git fetch origin claude/fervent-mendel-9y30q4 && git checkout -B <your-assigned-branch> origin/claude/fervent-mendel-9y30q4` — that branch is PR #8 (M4, not yet merged into `ccr-510da39c-6w5qgz`) plus the M5 plan and this INBOX.
 2. Commit and push only to your assigned branch: `git push -u origin <your-assigned-branch>` (use `--force-with-lease` once after the reset if the push is rejected).
 3. Open the PR from your assigned branch into `ccr-510da39c-6w5qgz`. Opening the PR is required.
 
@@ -20,33 +20,21 @@ See the repo `CLAUDE.md`. In short: bun + Drizzle (no Prisma, no `db:push`; `cd 
 
 ---
 
-## builder-1 — M4 (2026-10-19)
+## builder-1 — M5 (2026-10-19)
 
-Implement sections 1–5 of `plans/m4-inventory-tags/plan.md`, in order, as separate commits:
+Implement sections 1–4 of `plans/m5-hourly-it-pin/plan.md`, in order, as separate commits:
 
-1. **Schema:** `status_history`, append-only history for inventory number and location, a per-year counter, case-insensitive unique inventory number; migration applies to an M3 database.
-2. **Server logic + tests:** assign next `IA-YYYY-NNNNN` (year in `DISPLAY_TIMEZONE`, safe under concurrency, never reused), set/clear an existing number (unique, clear error), change status, set location, each with optional reason and a history row (`changed_by` null — no login yet).
-3. **Device page:** number + status in the header, edit panel, history timeline (status, number, location, assignments), `/devices/{id}/label` print page with a QR code generated locally.
-4. **Device list:** number, status, location columns; filters (status, department, OS, online) and search (number, hostname, user name / employee ID, serial).
-5. **Docs.**
+1. **Contract + server:** `settings-unlock` request/response schemas; server secret (DB or `IT_PIN_SECRET`); hourly 6-digit PIN (hour in `DISPLAY_TIMEZONE`, "Change now" bumps a generation); `POST /api/agent/settings-unlock` with constant-time compare, per-device rate limit (429) and an append-only attempts table; dashboard "IT PIN" box with countdown and Change now; attempts on the device page; tests.
+2. **Agent:** `api.Client.UnlockSettings`; `config.EnrollmentKeyHash` replaces `ITPin` (old value dropped); hash saved after IT setup / re-registration; `bound.UnlockSettings` tries the server and falls back to the enrollment key only when the server is unreachable; keep 5 tries / 60 s lockout; tests.
+3. **Desktop app:** remove PIN fields from IT setup; new Settings prompt texts; 401 banner asks for the enrollment key.
+4. **CI + docs:** READMEs (where to find the PIN, offline fallback, reset, no-login risk), `CLAUDE.md`.
 
-Devices only: no component tags, no batch actions, nothing in the desktop app. No contract or agent changes are expected; if you need one, note it here.
+This stacks on PR #8 (M4). Keep M4 files untouched except where M5 needs them.
 
-**Done when:** `bun run lint` and `bun run test` pass, CI is green, and the PR into `ccr-510da39c-6w5qgz` is open with a summary below.
+**Done when:** `bun run lint` and `bun run test` pass, CI (desktop builds included) is green, and your PR into `ccr-510da39c-6w5qgz` is open with a summary below. In the PR body say it stacks on #8 and should be merged after it.
 
 ---
 
 ## reviewer
 
-Not used for M4. builder-1: write your summary here under `### From builder-1` (files changed, what was done, what to check, what you could not verify), then stop.
-
-### From builder-1
-
-**Files changed:** `server/src/db/schema.ts`, `server/drizzle/0002_wise_mercury.sql` (+ meta), `server/src/lib/inventory.ts`, `server/src/lib/dashboard-inventory.ts`, `server/src/lib/queries.ts`, `server/src/lib/format.ts` (exports `TIME_ZONE`), `server/src/lib/http.ts` (`conflict` error code), `server/src/app/api/dashboard/devices/[id]/inventory/route.ts`, `server/src/app/devices/page.tsx`, `server/src/app/devices/[id]/page.tsx`, `server/src/app/devices/[id]/label/page.tsx`, `server/src/app/devices/_components/{inventory-panel,print-button}.tsx`, `server/src/app/globals.css`, `server/test/inventory.test.ts`, `server/test/dashboard.test.ts`, `server/test/helpers.ts`, `server/package.json` + `bun.lock` (`qrcode` 1.5.4, `@types/qrcode`), `README.md`, `CLAUDE.md`.
-
-**What was done:** (1) Migration 0002: `status_history`, `device_field_history` (number/location), `inventory_counters`; replaced the case-sensitive unique constraint on `devices.inventory_number` with a unique index on `lower(...)`; added `devices_status_idx`. Applies on top of M3 (existing devices stay `in_use`, no history rows). (2) `lib/inventory.ts`: assign next / set / clear number, change status, set location, each in a transaction with the device row locked, optional reason, history row, no-op = no row; `POST /api/dashboard/devices/{id}/inventory`. (3) Device page: number + status in header, edit panel, merged history timeline, `/devices/{id}/label` with a server-generated SVG QR. (4) List: number/status/location columns, filters (status, department, OS, connection) and search; `listDevices` now takes a filters object. (5) Docs.
-
-**What to check:** `listDevices` signature changed (second argument is now `{ connection, status, ... }`); existing test updated. A typed number that matches `IA-YYYY-NNNNN` is upper-cased and raises the counter; `assign_next` fails with 409 past 99999. Department filter matches the assigned user's department (unassigned devices have none). Search is `ILIKE` substring with `%`/`_` escaped (no trigram index; fine for ~1,000 devices).
-
-**Not verified:** printing on a real printer / physical QR scan (only checked that the label page renders an `<svg>`); no browser UI click-through — I exercised the API and server-rendered pages with curl against a production build. `bun run lint` and `bun test` (85 server tests, Postgres 16) pass locally.
-
+Not used for M5. builder-1: write your summary here under `### From builder-1` (files changed, what was done, what to check, what you could not verify), then stop.

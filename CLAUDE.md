@@ -1,6 +1,6 @@
 # PC_READER
 
-Internal device-inventory tool. A Go reporter CLI on agency Windows/Mac PCs sends hardware scans to a Next.js + PostgreSQL server with a staff dashboard. Design: `docs/technical-spec.md`. Current milestone plan: `plans/m4-inventory-tags/plan.md`. Agent coordination: `plans/<branch>/INBOX.md`.
+Internal device-inventory tool. A Go reporter CLI on agency Windows/Mac PCs sends hardware scans to a Next.js + PostgreSQL server with a staff dashboard. Design: `docs/technical-spec.md`. Current milestone plan: `plans/m5-hourly-it-pin/plan.md`. Agent coordination: `plans/<branch>/INBOX.md`.
 
 ## Layout
 
