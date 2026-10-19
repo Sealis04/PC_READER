@@ -42,3 +42,39 @@ You cannot run the GUI in your container. Verify with server integration tests, 
 ## reviewer
 
 Not used for M3. builder-1: write your summary here under `### From builder-1` (tray choice, files changed, what was done, what to check, what you could not verify), then stop.
+
+### From builder-1
+
+**Tray choice:** `fyne.io/systray` v1.12.2 next to Wails v2.10.2 (`RunWithExternalLoop`, started from Wails' `OnStartup` so Wails keeps the main thread macOS needs). Wails v3 is still alpha, so it was not used. Proven by the CI desktop builds on `windows-latest` and `macos-latest` (run on commit `c563bc8`, and again with the full app). The tray has "Open PC_READER" and a status line, and no Quit item. The icons are generated 32 px images in `agent/desktop/assets/`.
+
+**Files changed (by area)**
+- Contracts: `contracts/agent-api/{network-snapshot,network.request,events.request,events.message,logs.request,logs.response,request-complete.request,request-complete.response}.schema.json`, `contracts/index.ts`, fixtures `network/ events/ logs/ request-complete/`, `contracts/test/fixtures.test.ts`. The hello is the query string `agent_version` (a GET has no body); the network snapshot is sent with `POST /network` right after the stream opens.
+- Server: `src/db/schema.ts` and migration `drizzle/0001_lush_the_renegades.sql` (`device_requests`, `network_logs`, `device_logs`; `devices.agent_version/online/connection_id/connected_at`; index on `last_seen_at`; one open request per type per device via a partial unique index), `src/lib/{notifier,requests,dashboard-requests}.ts`, `src/lib/agent/{events,network,logs,complete}.ts` (+ `auth.ts` now refreshes `last_seen_at` on every agent call), routes `api/agent/{events,network,logs,requests/[id]/complete}` and `api/dashboard/devices/[id]/requests` (POST queue, GET list), `src/instrumentation.ts` (clears stale online flags at start), dashboard pages and `devices/_components/request-actions.tsx`, `lib/{format,queries}.ts`, tests `events-api.test.ts` and `dashboard.test.ts`.
+- Agent: `internal/{locallog,events,netinfo,background,autostart}` (new), `internal/api/client.go` (network, logs, complete), `internal/app/app.go` (`Log` hook, `Credentials`, `APIClient`, updated data-use notice), `internal/scan/{windows,darwin}` (light network collection and `ParseNetwork`, same parsers as the full scan), `internal/bound` (connection status, details prompt, `OnReady`), `cmd/pcreader` (`listen`, end-to-end test), `desktop/{main.go,tray.go,assets,frontend}`.
+- Docs: `agent/README.md` (Background app section), `CLAUDE.md`.
+
+**What was done**
+- Section 0: tray spike, hide on close, single instance (`SingleInstanceLock`), `--background` starts hidden.
+- Section 1: contracts, tables, SSE endpoint (heartbeat every 25 s; on open marks online and sends pending requests, and delivered-but-unfinished ones again; new requests pushed through an in-process notifier; the DB stays the source of truth; a newer stream replaces an older one and a `connection_id` stops the old stream's close from flipping the device offline), network, logs (413 above 500, dedupe on device and `local_entry_id`), idempotent complete (404 for another device's request), dashboard queueing without login (201 new / 200 existing).
+- Section 2: SQLite log (pure Go `modernc.org/sqlite` v1.38.2, the newest that builds with go 1.24; cap 5,000 plus a warning entry), confirm-then-clear upload with 413 splitting, SSE client with the 1/5/15/60 s backoff, reset after a healthy minute, 75 s idle drop and 401 stop; network snapshot and a change detector (30 s local interface fingerprint, collects and sends only on a real change); request handlers; `pcreader listen [--from-raw DIR]`.
+- Section 3: start at login (HKCU Run value / per-user LaunchAgent, both with `--background`, re-asserted on every launch, `PCREADER_NO_AUTOSTART=1` and `--remove-autostart` for testing), background connection started when a set-up computer launches and after IT setup, signup and a changed server address, tray status line, connection chip in the window, "Update my details" opened with a message on `prompt_details_update`.
+- Section 4: Online/Offline/Stale pills (stale after 48 h), last seen, agent version, filter, request buttons with state (the page refreshes every 3 s only while a request is open), Logs (level filter) and Network sections.
+- Section 5: docs and data-use notice (connection, network on connect/change, logs and scans on request).
+
+**Verified**
+- `bun run lint` and `bun run test` pass (contracts 30, server 62, Go all packages, including `-race` on the new packages).
+- End-to-end against a production `next start` server and real Postgres: `TestEndToEndListen` queues `scan_now`, `send_logs` and `prompt_details_update` after `pcreader listen` connected; all three arrive and complete, and `scan_now` carries a `scan_id`.
+- Desktop CI builds on both runners (see the PR for the final run).
+
+**What to check**
+- `src/lib/agent/events.ts` stream lifecycle (`cleanup`, `connection_id`, abort and cancel paths); Next route handlers with a long-lived response behaved correctly in production mode locally, but not behind a proxy.
+- Requests are marked `delivered` before they are written to the stream, so a lost write is recovered by the redelivery on reconnect (the agent ignores a duplicate id while it is handling it).
+- Network changes that keep the same IPs (a gateway or Wi-Fi name change on the same address) are not noticed until the next reconnect, because the cheap fingerprint is addresses only.
+- The migration adds columns with defaults and new tables; it can be applied to an M2 database.
+
+**Could not verify (no GUI in the container)**
+- The tray icon, the hidden start, the single-instance focus and the window opening on the details prompt on real Windows and macOS.
+- The Windows Run entry and the macOS LaunchAgent are written and unit-tested for content only. The macOS plist starts the executable inside the bundle directly; if a Mac needs the bundle opened via `open`, adjust `autostart.plist`.
+- The real Windows and macOS network collectors only run in CI as compile checks; the parsers are fixture-tested, and the light collection reuses the full scan's commands.
+- Unplugging and replugging the network on a real PC (the user test in the plan).
+
