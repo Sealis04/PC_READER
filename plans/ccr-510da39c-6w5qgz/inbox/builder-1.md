@@ -12,3 +12,5 @@ Summary:
 4. CI desktop builds (Windows, macOS) uploading `pcreader-desktop`; docs.
 
 Work on your session's assigned branch (reset onto `origin/ccr-510da39c-6w5qgz`), open the PR into `ccr-510da39c-6w5qgz`, and do **not** fire the reviewer.
+
+**Status:** DONE — all four sections implemented on `claude/cool-volta-4q6iev`; summary under `### From builder-1` in `../INBOX.md`. PR into `ccr-510da39c-6w5qgz`; reviewer not fired (per INBOX.md).
