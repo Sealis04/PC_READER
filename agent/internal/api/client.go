@@ -74,15 +74,15 @@ func New(baseURL string) *Client {
 
 func retryable(status int) bool { return status == http.StatusTooManyRequests || status >= 500 }
 
-// do POSTs body and decodes the response into out for any status in ok.
-func (c *Client) do(ctx context.Context, path, token string, body any, out any, ok ...int) (int, error) {
+// do sends body (POST unless method says otherwise) and decodes the response into out for any status in ok.
+func (c *Client) do(ctx context.Context, method, path, token string, body any, out any, ok ...int) (int, error) {
 	b, err := json.Marshal(body)
 	if err != nil {
 		return 0, err
 	}
 	var lastErr error
 	for attempt := 0; ; attempt++ {
-		status, err := c.once(ctx, path, token, b, out, ok)
+		status, err := c.once(ctx, method, path, token, b, out, ok)
 		if err == nil {
 			return status, nil
 		}
@@ -98,8 +98,8 @@ func (c *Client) do(ctx context.Context, path, token string, body any, out any, 
 	}
 }
 
-func (c *Client) once(ctx context.Context, path, token string, body []byte, out any, ok []int) (int, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+path, bytes.NewReader(body))
+func (c *Client) once(ctx context.Context, method, path, token string, body []byte, out any, ok []int) (int, error) {
+	req, err := http.NewRequestWithContext(ctx, method, c.BaseURL+path, bytes.NewReader(body))
 	if err != nil {
 		return 0, err
 	}
@@ -141,7 +141,7 @@ func (c *Client) once(ctx context.Context, path, token string, body []byte, out 
 
 func (c *Client) Register(ctx context.Context, req payload.RegisterRequest) (*payload.RegisterResponse, error) {
 	var out payload.RegisterResponse
-	if _, err := c.do(ctx, "/api/agent/register", "", req, &out, http.StatusCreated); err != nil {
+	if _, err := c.do(ctx, http.MethodPost, "/api/agent/register", "", req, &out, http.StatusCreated); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -150,9 +150,42 @@ func (c *Client) Register(ctx context.Context, req payload.RegisterRequest) (*pa
 // UploadScan returns the scan ID. A duplicate scan_uuid (409) counts as success.
 func (c *Client) UploadScan(ctx context.Context, token string, req payload.ScanRequest) (scanID string, duplicate bool, err error) {
 	var out payload.ScanResponse
-	status, err := c.do(ctx, "/api/agent/scans", token, req, &out, http.StatusCreated, http.StatusConflict)
+	status, err := c.do(ctx, http.MethodPost, "/api/agent/scans", token, req, &out, http.StatusCreated, http.StatusConflict)
 	if err != nil {
 		return "", false, err
 	}
 	return out.ScanID, status == http.StatusConflict, nil
+}
+
+// UpdateUser sends the user's corrected details (or a new person's, which reassigns the
+// computer) and returns the details as stored.
+func (c *Client) UpdateUser(ctx context.Context, token string, u payload.UserDetails) (*payload.UserDetails, error) {
+	var out payload.UserDetails
+	if _, err := c.do(ctx, http.MethodPut, "/api/agent/user", token, u, &out, http.StatusOK); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Ping checks that the server answers, without retries: any 2xx or 3xx reply from the
+// dashboard's device list counts. It does not validate the enrollment key.
+func (c *Client) Ping(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+"/devices", nil)
+	if err != nil {
+		return err
+	}
+	// Redirects (e.g. to a login page later) still prove the server is there.
+	hc := *c.HTTP
+	hc.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	res, err := hc.Do(req)
+	if err != nil {
+		return fmt.Errorf("cannot reach %s: %w", c.BaseURL, err)
+	}
+	_ = res.Body.Close()
+	if res.StatusCode >= 400 {
+		return &Error{Status: res.StatusCode, Message: "this address answered, but it does not look like a PC_READER server"}
+	}
+	return nil
 }

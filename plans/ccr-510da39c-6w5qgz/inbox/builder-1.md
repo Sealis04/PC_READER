@@ -14,3 +14,16 @@ Summary:
 4. CI desktop builds (Windows, macOS) uploading `pcreader-desktop`; docs.
 
 Work on your session's assigned branch (reset onto `origin/ccr-510da39c-6w5qgz`), open the PR into `ccr-510da39c-6w5qgz`, and do **not** fire the reviewer.
+
+**Status:** DONE — all four sections implemented on `claude/cool-volta-4q6iev`; summary under `### From builder-1` in `../INBOX.md`. PR into `ccr-510da39c-6w5qgz`; reviewer not fired (per INBOX.md).
+
+---
+
+## Round 4 — PIN-protected IT settings
+
+**Status:** DONE
+
+**Files changed:** `agent/internal/config/{config.go,pin.go,pin_test.go}`, `agent/internal/app/app.go`, `agent/internal/bound/{bound.go,bound_test.go}`, `agent/desktop/frontend/src/{main.js,style.css}`, `agent/README.md`.
+**What was done:** IT PIN (4–8 digits, twice) stored only as salted PBKDF2-SHA256 (600k iterations, 16-byte salt, stdlib `crypto/pbkdf2`) under `it_pin` in `config.json`. IT setup shows whenever no PIN is stored; on a registered computer it asks only for server URL + PIN. "IT settings" link on My computer → PIN prompt (5 wrong tries lock 60 s, in memory) → change server URL (checked first), re-register (key + signup, PIN kept), change PIN. Re-register after a rejected token also goes through the PIN.
+**What to check:** UI could not be run here (Wails GUI); only bound methods are unit-tested. Desktop CI jobs must be green. Branch was reset onto `origin/claude/cool-volta-atpdut` (round 3, ad90735) as instructed in the fire payload.
+**Conflicts resolved:** (none)

@@ -93,3 +93,35 @@ func TestRegisterWrongKey(t *testing.T) {
 		t.Fatalf("err %v", err)
 	}
 }
+
+func TestUpdateUserPutsDetailsWithToken(t *testing.T) {
+	c, _ := client(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut || r.URL.Path != "/api/agent/user" || r.Header.Get("Authorization") != "Bearer tok" {
+			t.Errorf("unexpected request %s %s auth %q", r.Method, r.URL.Path, r.Header.Get("Authorization"))
+		}
+		reply(200, `{"full_name":"A B","employee_id":"E1","email":null,"department":"IT","position":null,"phone":null}`)(w, r)
+	})
+	got, err := c.UpdateUser(context.Background(), "tok", payload.UserDetails{FullName: "A B", EmployeeID: "E1", Department: "IT"})
+	if err != nil || got.EmployeeID != "E1" {
+		t.Fatalf("got %+v %v", got, err)
+	}
+}
+
+func TestUpdateUserUnauthorized(t *testing.T) {
+	c, calls := client(t, reply(401, `{"error":"unauthorized"}`))
+	if _, err := c.UpdateUser(context.Background(), "tok", payload.UserDetails{}); !errors.Is(err, ErrUnauthorized) || *calls != 1 {
+		t.Fatalf("err %v calls %d", err, *calls)
+	}
+}
+
+func TestPing(t *testing.T) {
+	c, calls := client(t, reply(200, `<html>`))
+	if err := c.Ping(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	c, calls = client(t, reply(404, `nope`))
+	var apiErr *Error
+	if err := c.Ping(context.Background()); !errors.As(err, &apiErr) || apiErr.Status != 404 || *calls != 1 {
+		t.Fatalf("err %v calls %d", err, *calls)
+	}
+}

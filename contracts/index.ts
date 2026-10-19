@@ -5,6 +5,7 @@ import addFormats from "ajv-formats";
 import scanPayloadSchema from "./scan-payload.v1.schema.json";
 import registerRequestSchema from "./agent-api/register.request.schema.json";
 import registerResponseSchema from "./agent-api/register.response.schema.json";
+import userRequestSchema from "./agent-api/user.request.schema.json";
 import scansRequestSchema from "./agent-api/scans.request.schema.json";
 import scansResponseSchema from "./agent-api/scans.response.schema.json";
 
@@ -12,6 +13,7 @@ export const schemas = {
   scanPayload: scanPayloadSchema,
   registerRequest: registerRequestSchema,
   registerResponse: registerResponseSchema,
+  userRequest: userRequestSchema,
   scansRequest: scansRequestSchema,
   scansResponse: scansResponseSchema,
 };
@@ -23,6 +25,7 @@ ajv.addSchema(scanPayloadSchema);
 export const validateScanPayload = ajv.compile<ScanPayload>(scanPayloadSchema);
 export const validateRegisterRequest = ajv.compile<RegisterRequest>(registerRequestSchema);
 export const validateRegisterResponse = ajv.compile<RegisterResponse>(registerResponseSchema);
+export const validateUserRequest = ajv.compile<UserDetails>(userRequestSchema);
 export const validateScansRequest = ajv.compile<ScansRequest>(scansRequestSchema);
 export const validateScansResponse = ajv.compile<ScansResponse>(scansResponseSchema);
 
@@ -102,6 +105,15 @@ export interface ScanPayload {
     }>;
     wifi_ssid: string | null;
   };
+}
+
+export interface UserDetails {
+  full_name: string;
+  employee_id: string;
+  email: string | null;
+  department: string;
+  position: string | null;
+  phone: string | null;
 }
 
 export interface RegisterRequest {
