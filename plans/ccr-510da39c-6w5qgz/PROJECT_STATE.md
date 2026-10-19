@@ -1,26 +1,21 @@
 # Project state — ccr-510da39c-6w5qgz
 
-**Goal:** Milestone 1 end-to-end thin slice (see `plans/m1-thin-slice/plan.md`).
+**Goal (current):** Milestone 2 — desktop app demo (see `plans/m2-desktop-demo/plan.md`).
 
 ## In progress
-- (none)
+- builder-1: `PUT /api/agent/user`, agent service layer, Wails desktop app, desktop CI builds
 
 ## Queued
-- User real-machine test on Windows PC and Mac (Phase 2)
+- Reviewer pass on builder-1's PR
+- Real-machine demo of the desktop app on Windows (and a Mac)
+
+## Open items
+- Mac real-machine CLI test skipped (CI live-scans a macOS VM only)
 
 ## Done
-- Spec (`docs/technical-spec.md`)
-- M1 plan and assignments
-- Run 1 / Phase 0: contracts (schemas, validators, fixtures, tests)
-- Run 1 / Phase 1: server (Drizzle schema + migration, register and scans endpoints, dashboard list + detail, Docker Compose, CI)
-- Run 2: Go agent CLI (Windows + macOS collectors, fixture-tested parsers, register/scan/capture-raw, credential-store token, end-to-end test, live-scan CI, cross-compiled builds)
+- M1: contracts, server (register, scans, dashboard), Go CLI agent with Windows/macOS scanners, CI with live scans and cross-compiled builds
+- M1 real-machine test on Windows: passed (2026-10-19)
 
 ## Files touched
-- `plans/m1-thin-slice/plan.md`
-- `plans/ccr-510da39c-6w5qgz/INBOX.md`, `PROJECT_STATE.md`, `HANDOFF.md`
-- `package.json`, `bun.lock`, `.gitignore`, `.dockerignore`, `.env.example`, `docker-compose.yml`, `CLAUDE.md`, `README.md`
-- `.github/workflows/server.yml`
-- `contracts/**`
-- `server/**`
-- `agent/**`
-- `.github/workflows/agent.yml`
+- `contracts/**`, `server/**`, `agent/**`, `.github/workflows/*`, `docker-compose.yml`, `CLAUDE.md`, `README.md`
+- `plans/m1-thin-slice/*`, `plans/m2-desktop-demo/plan.md`, `plans/ccr-510da39c-6w5qgz/*`

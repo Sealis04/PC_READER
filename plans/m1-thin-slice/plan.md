@@ -86,4 +86,7 @@ docker-compose.yml    # app + postgres for local testing
 
 ## After M1: desktop UI (Milestone 2)
 
+Result: Windows real-machine test passed (2026-10-19); Mac test skipped for now. M2 plan: `plans/m2-desktop-demo/plan.md`.
+
+
 Decided 2026-10-19: finish the real-machine CLI test and any scanner fixes first, then plan Milestone 2. M2 scope from the spec: Wails desktop app (signup form with data-use notice, specs summary, "update my details", "report now"), the background reporter as a Windows Service / macOS LaunchAgent (24-hour report with catch-up, 5-minute `/checkin`, `/logs` upload), and staff login on the dashboard.
