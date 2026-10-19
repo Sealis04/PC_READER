@@ -9,18 +9,26 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
+	"github.com/sealis04/pc_reader/agent/internal/payload"
 	"github.com/zalando/go-keyring"
 )
 
 const keyringService = "PCReader"
 
-// Config is saved as config.json in Dir(). It holds no secrets.
+// Config is saved as config.json in Dir(). It holds no secrets, but it does hold the
+// user's details and the last scan (for the desktop app); neither is ever logged.
 type Config struct {
 	ServerURL    string `json:"server_url"`
 	DeviceUUID   string `json:"device_uuid"`
 	DeviceID     string `json:"device_id"`
 	RegisteredAt string `json:"registered_at"`
+	// User is the person's details as last sent to the server.
+	User *payload.UserDetails `json:"user,omitempty"`
+	// LastReportAt is when the last scan was uploaded (RFC 3339, UTC); LastPayload is that scan.
+	LastReportAt string        `json:"last_report_at,omitempty"`
+	LastPayload  *payload.Scan `json:"last_payload,omitempty"`
 }
 
 // Dir is the app data folder: %AppData%\PCReader on Windows,
@@ -81,6 +89,12 @@ func (c *Config) Save() error {
 		return err
 	}
 	return os.Rename(tmp, p)
+}
+
+// RecordReport remembers a successfully uploaded scan (call Save afterwards).
+func (c *Config) RecordReport(at time.Time, sc *payload.Scan) {
+	c.LastReportAt = at.UTC().Format(time.RFC3339)
+	c.LastPayload = sc
 }
 
 // EnsureDeviceUUID generates the install's device_uuid on first use.

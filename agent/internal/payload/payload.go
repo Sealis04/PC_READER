@@ -138,14 +138,20 @@ type Summary struct {
 	SerialNumber *string `json:"serial_number"`
 }
 
+// UserDetails is the body of PUT /api/agent/user and the user's details kept locally.
+type UserDetails struct {
+	FullName   string  `json:"full_name"`
+	EmployeeID string  `json:"employee_id"`
+	Email      *string `json:"email"`
+	Department string  `json:"department"`
+	Position   *string `json:"position"`
+	Phone      *string `json:"phone"`
+}
+
+// User is the registration's user: their details plus the data-use notice acceptance.
 type User struct {
-	FullName           string  `json:"full_name"`
-	EmployeeID         string  `json:"employee_id"`
-	Email              *string `json:"email"`
-	Department         string  `json:"department"`
-	Position           *string `json:"position"`
-	Phone              *string `json:"phone"`
-	PolicyAcknowledged bool    `json:"policy_acknowledged"`
+	UserDetails
+	PolicyAcknowledged bool `json:"policy_acknowledged"`
 }
 
 type RegisterRequest struct {
