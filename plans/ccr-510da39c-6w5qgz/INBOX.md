@@ -1,5 +1,6 @@
 # INBOX — agent coordination
 
+**Repository:** `Sealis04/PC_READER` — if your working directory is another repository, switch to a checkout of this one (`git remote -v`).
 **Feature branch:** `ccr-510da39c-6w5qgz`
 **Active builders:** builder-1 only
 **Reviewer:** not used for M2. **Do not fire the reviewer routine.** When done, open your PR and stop; the planner checks CI and reports to the user.
