@@ -54,6 +54,7 @@ const HISTORY_LABEL = {
   status: "Status",
   inventory_number: "Inventory number",
   location: "Location",
+  custom_field: "Field",
   assigned: "Assigned to",
   unassigned: "Unassigned from",
 } as const;
@@ -196,8 +197,10 @@ export default async function DevicePage({
                 <li key={i}>
                   <span className="num sub">{formatDateTime(h.at)}</span>
                   <span>
-                    {HISTORY_LABEL[h.kind]}:{" "}
-                    {h.kind === "assigned" ? (
+                    {h.kind === "custom_field" ? (h.fieldName ?? HISTORY_LABEL[h.kind]) : HISTORY_LABEL[h.kind]}:{" "}
+                    {h.kind === "custom_field" && h.secret ? (
+                      <strong>changed</strong>
+                    ) : h.kind === "assigned" ? (
                       h.to
                     ) : h.kind === "unassigned" ? (
                       h.from

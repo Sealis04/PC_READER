@@ -1,8 +1,10 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { validateBrandingResponse, type RegisterResponse } from "@pcreader/contracts";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { sql } from "drizzle-orm";
 import { closeDb, getDb } from "@/db";
-import { runMigrations } from "@/db/migrate";
+import { migrationsFolder } from "@/db/migrate";
 import { handleBranding, handleBrandingLogo } from "@/lib/branding";
 import { handleClearLogo, handleGetSettings, handleSetLogo, handleUpdateSettings } from "@/lib/dashboard-settings";
 import { handleRegister } from "@/lib/agent/register";
@@ -145,9 +147,10 @@ describe("logo", () => {
 describe("upgrade rule (migration 0006)", () => {
   const rerun = async (setup: () => Promise<void>) => {
     await getDb().execute(sql`drop table app_settings`);
-    await getDb().execute(sql`delete from drizzle.__drizzle_migrations where id = (select max(id) from drizzle.__drizzle_migrations)`);
     await setup();
-    await runMigrations();
+    // Replays 0006's own SQL (not the migrator, which would also try to re-run every later migration).
+    const file = readFileSync(join(migrationsFolder, "0006_sticky_mercury.sql"), "utf8");
+    for (const statement of file.split("--> statement-breakpoint")) await getDb().execute(sql.raw(statement));
     return (await getSettings(getDb())).inventoryPrefix;
   };
   test("existing IA-YYYY-NNNNN numbers keep the IA prefix", async () => {

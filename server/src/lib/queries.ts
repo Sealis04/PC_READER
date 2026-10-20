@@ -4,6 +4,7 @@ import type { Db } from "@/db";
 import {
   assignments,
   components,
+  customFields,
   deviceFieldHistory,
   deviceLogs,
   deviceRequests,
@@ -159,7 +160,10 @@ export async function getNetworkHistory(db: Db, deviceId: string) {
 
 export type HistoryEvent = {
   at: Date;
-  kind: "status" | "inventory_number" | "location" | "assigned" | "unassigned";
+  kind: "status" | "inventory_number" | "location" | "custom_field" | "assigned" | "unassigned";
+  // custom_field only: the field's name, and whether it is a secret (values are never recorded).
+  fieldName?: string | null;
+  secret?: boolean;
   from: string | null;
   to: string | null;
   reason: string | null;
@@ -171,7 +175,11 @@ export type HistoryEvent = {
 export async function getDeviceHistory(db: Db, deviceId: string): Promise<HistoryEvent[]> {
   const [statuses, fields, assigned] = await Promise.all([
     db.select().from(statusHistory).where(eq(statusHistory.deviceId, deviceId)),
-    db.select().from(deviceFieldHistory).where(eq(deviceFieldHistory.deviceId, deviceId)),
+    db
+      .select({ row: deviceFieldHistory, fieldName: customFields.name, fieldType: customFields.type })
+      .from(deviceFieldHistory)
+      .leftJoin(customFields, eq(customFields.id, deviceFieldHistory.customFieldId))
+      .where(eq(deviceFieldHistory.deviceId, deviceId)),
     db
       .select({ startAt: assignments.startAt, endAt: assignments.endAt, assignedBy: assignments.assignedBy, notes: assignments.notes, userName: users.fullName, employeeId: users.employeeId })
       .from(assignments)
@@ -180,7 +188,17 @@ export async function getDeviceHistory(db: Db, deviceId: string): Promise<Histor
   ]);
   const events: HistoryEvent[] = [
     ...statuses.map((r): HistoryEvent => ({ at: r.changedAt, kind: "status", from: r.oldStatus, to: r.newStatus, reason: r.reason, by: r.changedBy })),
-    ...fields.map((r): HistoryEvent => ({ at: r.changedAt, kind: r.field, from: r.oldValue, to: r.newValue, reason: r.reason, by: r.changedBy })),
+    ...fields.map(
+      ({ row: r, fieldName, fieldType }): HistoryEvent => ({
+        at: r.changedAt,
+        kind: r.field,
+        from: r.oldValue,
+        to: r.newValue,
+        reason: r.reason,
+        by: r.changedBy,
+        ...(r.field === "custom_field" && { fieldName, secret: fieldType === "secret" }),
+      }),
+    ),
   ];
   for (const a of assigned) {
     const who = `${a.userName} (${a.employeeId})`;
