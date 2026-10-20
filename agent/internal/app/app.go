@@ -141,7 +141,9 @@ func (s *Service) Collect(ctx context.Context, fromRaw string) (*payload.Scan, e
 type RegisterInput struct {
 	ServerURL string
 	Key       string
-	User      payload.UserDetails
+	// PIN is the current hourly IT PIN (shown on the dashboard); the server checks it after the key.
+	PIN  string
+	User payload.UserDetails
 	// FromRaw uses a folder saved by capture-raw instead of scanning (testing).
 	FromRaw string
 	// UploadFirstScan also uploads the scan taken for registration.
@@ -177,6 +179,7 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (*Registered, 
 	client := s.client(serverURL)
 	res, err := client.Register(ctx, payload.RegisterRequest{
 		EnrollmentKey: strings.TrimSpace(in.Key),
+		ITPIN:         strings.TrimSpace(in.PIN),
 		DeviceUUID:    cfg.EnsureDeviceUUID(),
 		OSType:        sc.OSType,
 		Hostname:      sc.System.Hostname,
@@ -205,7 +208,7 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (*Registered, 
 	s.logf("info", "signup", "Registered this computer")
 	out := &Registered{Hostname: sc.System.Hostname, DeviceID: res.DeviceID}
 	if in.UploadFirstScan {
-		out.ScanID, _, out.UploadErr = s.uploadAndRecord(ctx, cfg, res.DeviceToken, "manual", collectedAt, sc)
+		out.ScanID, _, out.UploadErr = s.uploadAndRecord(ctx, cfg, res.DeviceToken, "manual", strings.TrimSpace(in.PIN), collectedAt, sc)
 	}
 	return out, nil
 }
@@ -213,6 +216,8 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (*Registered, 
 // UploadOptions tunes Upload.
 type UploadOptions struct {
 	ScanType string
+	// PIN is the hourly IT PIN; the server requires it for manual scans.
+	PIN string
 	// ServerURL overrides the registered server for this upload only (nothing is saved).
 	ServerURL string
 }
@@ -240,7 +245,7 @@ func (s *Service) Upload(ctx context.Context, sc *payload.Scan, collectedAt time
 	if scanType == "" {
 		scanType = "manual"
 	}
-	id, dup, err := s.client(serverURL).UploadScan(ctx, token, scanRequest(scanType, collectedAt, sc))
+	id, dup, err := s.client(serverURL).UploadScan(ctx, token, scanRequest(scanType, opt.PIN, collectedAt, sc))
 	if err != nil {
 		s.logf("error", "sync", "Scan upload failed")
 		return "", false, fmt.Errorf("upload failed: %w", err)
@@ -255,8 +260,9 @@ func (s *Service) Upload(ctx context.Context, sc *payload.Scan, collectedAt time
 	return id, dup, nil
 }
 
-// Report scans this computer and uploads the result ("Report now").
-func (s *Service) Report(ctx context.Context, scanType string) (scanID string, duplicate bool, sc *payload.Scan, err error) {
+// Report scans this computer and uploads the result. A manual report ("Report now") needs the
+// current IT PIN; dashboard-requested (on_demand) ones pass "".
+func (s *Service) Report(ctx context.Context, scanType, pin string) (scanID string, duplicate bool, sc *payload.Scan, err error) {
 	collectedAt := s.now()
 	sc, err = s.Collect(ctx, "")
 	if err != nil {
@@ -264,13 +270,13 @@ func (s *Service) Report(ctx context.Context, scanType string) (scanID string, d
 		return "", false, nil, err
 	}
 	s.logf("info", "scan", "Scan completed")
-	scanID, duplicate, err = s.Upload(ctx, sc, collectedAt, UploadOptions{ScanType: scanType})
+	scanID, duplicate, err = s.Upload(ctx, sc, collectedAt, UploadOptions{ScanType: scanType, PIN: pin})
 	return scanID, duplicate, sc, err
 }
 
 // UpdateUser sends corrected details. A different employee ID hands the computer to that
-// person on the server. The stored details are saved locally.
-func (s *Service) UpdateUser(ctx context.Context, u payload.UserDetails) (*payload.UserDetails, error) {
+// person on the server. The server needs the current IT PIN. The stored details are saved locally.
+func (s *Service) UpdateUser(ctx context.Context, u payload.UserDetails, pin string) (*payload.UserDetails, error) {
 	cfg, err := config.Load()
 	if err != nil {
 		return nil, err
@@ -282,7 +288,7 @@ func (s *Service) UpdateUser(ctx context.Context, u payload.UserDetails) (*paylo
 	if err != nil {
 		return nil, err
 	}
-	stored, err := s.client(cfg.ServerURL).UpdateUser(ctx, token, trimUser(u))
+	stored, err := s.client(cfg.ServerURL).UpdateUser(ctx, token, trimUser(u), strings.TrimSpace(pin))
 	if err != nil {
 		s.logf("error", "update", "Updating details failed")
 		return nil, err
@@ -384,8 +390,8 @@ func (s *Service) SetServerURL(serverURL string) error {
 	return cfg.Save()
 }
 
-func (s *Service) uploadAndRecord(ctx context.Context, cfg *config.Config, token, scanType string, collectedAt time.Time, sc *payload.Scan) (string, bool, error) {
-	id, dup, err := s.client(cfg.ServerURL).UploadScan(ctx, token, scanRequest(scanType, collectedAt, sc))
+func (s *Service) uploadAndRecord(ctx context.Context, cfg *config.Config, token, scanType, pin string, collectedAt time.Time, sc *payload.Scan) (string, bool, error) {
+	id, dup, err := s.client(cfg.ServerURL).UploadScan(ctx, token, scanRequest(scanType, pin, collectedAt, sc))
 	if err != nil {
 		return "", false, fmt.Errorf("upload failed: %w", err)
 	}
@@ -393,13 +399,17 @@ func (s *Service) uploadAndRecord(ctx context.Context, cfg *config.Config, token
 	return id, dup, cfg.Save()
 }
 
-func scanRequest(scanType string, collectedAt time.Time, sc *payload.Scan) payload.ScanRequest {
-	return payload.ScanRequest{
+func scanRequest(scanType, pin string, collectedAt time.Time, sc *payload.Scan) payload.ScanRequest {
+	req := payload.ScanRequest{
 		ScanUUID:    config.NewUUID(),
 		ScanType:    scanType,
 		CollectedAt: collectedAt.Format(time.RFC3339Nano),
 		Payload:     sc,
 	}
+	if scanType == "manual" {
+		req.ITPIN = strings.TrimSpace(pin) // only manual scans carry the PIN
+	}
+	return req
 }
 
 func trimUser(u payload.UserDetails) payload.UserDetails {

@@ -25,11 +25,14 @@ import (
 // DisplayTimezone formats times shown in the window, like the dashboard's DISPLAY_TIMEZONE.
 const DisplayTimezone = "Asia/Manila"
 
-// Unlock lockout: after maxPinFailures wrong PINs (or enrollment keys) in a row, every unlock attempt is
-// refused for pinLockout. The server also rate-limits wrong PINs per device.
+// Unlock lockout: after maxPinFailures wrong PINs (or enrollment keys) in a row, every PIN prompt (Settings,
+// Report now, signup, Update my details) is refused for pinLockout. The server also rate-limits wrong PINs.
+// A correct PIN unlocks the app for unlockSession (or until the window is hidden); without it the window is
+// view-only: My computer and Full details.
 const (
 	maxPinFailures = 5
 	pinLockout     = 60 * time.Second
+	unlockSession  = 10 * time.Minute
 	// unlockTimeout is how long the server gets to answer before Settings falls back to the enrollment key.
 	unlockTimeout = 8 * time.Second
 )
@@ -53,7 +56,8 @@ type App struct {
 	pendingKey    string     // held in memory only until signup (then only its hash is saved)
 	reregistering bool
 	keyReason     string    // "offline" or "rejected" once Settings asks for the enrollment key instead of the PIN
-	unlocked      bool      // IT settings are open (the right PIN or key was entered since the window started)
+	unlockedUntil time.Time // the IT session is open until then (zero: locked)
+	sessionPin    string    // the PIN the server accepted, kept in memory only to send with this session's actions; "" after a key unlock
 	pinFailures   int       // consecutive wrong PINs or keys
 	lockedUntil   time.Time // PIN checks refused until then
 	now           func() time.Time
@@ -118,7 +122,7 @@ func (a *App) TakePrompt() PromptView {
 		return PromptView{}
 	}
 	a.promptPending = false
-	return PromptView{Show: true, Message: "IT asked you to confirm your details. Check them and press Save."}
+	return PromptView{Show: true, Message: "IT asked you to confirm these details. IT needs to enter the PIN to save."}
 }
 
 func (a *App) ready() {
@@ -188,7 +192,11 @@ type Result struct {
 	FieldErrors map[string]string `json:"fieldErrors"`
 	// NeedsReregistration means the server rejected this computer's token.
 	NeedsReregistration bool `json:"needsReregistration"`
+	// NeedsPin means the action did not run because the IT PIN is missing or was not accepted: ask for it.
+	NeedsPin bool `json:"needsPin"`
 }
+
+var needPinResult = Result{Message: "Enter the IT PIN first.", NeedsPin: true, FieldErrors: map[string]string{"pin": "Enter the IT PIN"}}
 
 func fail(msg string) Result { return Result{Message: msg} }
 
@@ -280,12 +288,9 @@ type UnlockResult struct {
 // hash saved at IT setup. Five wrong tries in a row, counted across both modes, lock every attempt for
 // 60 seconds (in memory, so closing the window resets it).
 func (a *App) UnlockITSettings(secret string) UnlockResult {
-	a.mu.Lock()
-	if left := a.lockedUntil.Sub(a.now()); left > 0 {
-		a.mu.Unlock()
-		return a.unlockFail(a.UnlockMode().Mode, fmt.Sprintf("Too many wrong tries. Try again in %d seconds.", int(left/time.Second)+1))
+	if msg, locked := a.lockout(); locked {
+		return a.unlockFail(a.UnlockMode().Mode, msg)
 	}
-	a.mu.Unlock()
 
 	mode := a.UnlockMode()
 	if mode.Mode == modeKey {
@@ -301,7 +306,7 @@ func (a *App) UnlockITSettings(secret string) UnlockResult {
 	var apiErr *api.Error
 	switch {
 	case err == nil:
-		return a.unlockOK()
+		return a.unlockOK(pin)
 	case errors.Is(err, api.ErrUnauthorized), errors.Is(err, app.ErrNotRegistered), errors.Is(err, config.ErrNoToken):
 		return a.switchToKey(reasonRejected, reregisterPromptMessage)
 	case errors.As(err, &apiErr) && apiErr.Status == 403:
@@ -322,24 +327,103 @@ func (a *App) unlockFail(mode, msg string) UnlockResult {
 	return UnlockResult{Result: Result{Message: msg, FieldErrors: map[string]string{"pin": msg}}, Mode: mode}
 }
 
-func (a *App) unlockOK() UnlockResult {
+// unlockOK opens the IT session for unlockSession. pin is the PIN the server accepted, kept only in
+// memory to send with the session's actions; "" for an unlock by enrollment key (Settings only).
+func (a *App) unlockOK(pin string) UnlockResult {
 	a.mu.Lock()
-	a.unlocked, a.pinFailures, a.keyReason = true, 0, ""
+	a.unlockedUntil, a.sessionPin = a.now().Add(unlockSession), pin
+	a.pinFailures, a.keyReason = 0, ""
 	a.mu.Unlock()
 	return UnlockResult{Result: Result{OK: true}, Mode: modePin}
 }
 
-// countWrong counts a wrong PIN or key; the fifth in a row starts the lockout.
-func (a *App) countWrong(mode, msg string) UnlockResult {
+// lockout says whether PIN prompts are refused right now, and why.
+func (a *App) lockout() (string, bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	if left := a.lockedUntil.Sub(a.now()); left > 0 {
+		return fmt.Sprintf("Too many wrong tries. Try again in %d seconds.", int(left/time.Second)+1), true
+	}
+	return "", false
+}
+
+// wrongTry counts a wrong PIN or key and returns the message to show; the fifth in a row starts the lockout.
+func (a *App) wrongTry(msg string) string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.sessionPin = "" // a PIN the server just refused is not worth keeping
 	a.pinFailures++
 	if a.pinFailures >= maxPinFailures {
 		a.pinFailures, a.lockedUntil = 0, a.now().Add(pinLockout)
-		return a.unlockFail(mode, fmt.Sprintf("Too many wrong tries. Try again in %d seconds.", int(pinLockout/time.Second)))
+		return fmt.Sprintf("Too many wrong tries. Try again in %d seconds.", int(pinLockout/time.Second))
 	}
-	return a.unlockFail(mode, fmt.Sprintf("%s %d tries left.", msg, maxPinFailures-a.pinFailures))
+	return fmt.Sprintf("%s %d tries left.", msg, maxPinFailures-a.pinFailures)
 }
+
+// countWrong counts a wrong PIN or key for the Settings prompt.
+func (a *App) countWrong(mode, msg string) UnlockResult {
+	return a.unlockFail(mode, a.wrongTry(msg))
+}
+
+// SessionView is the "Unlocked for IT" indicator: whether the app is unlocked and for how long.
+type SessionView struct {
+	Unlocked    bool `json:"unlocked"`
+	SecondsLeft int  `json:"secondsLeft"`
+	// HasPin is false after a key unlock: Settings are open but actions still need the PIN.
+	HasPin bool `json:"hasPin"`
+}
+
+// Session reports the IT session; it is locked again after unlockSession.
+func (a *App) Session() SessionView {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	left := a.unlockedUntil.Sub(a.now())
+	if left <= 0 {
+		a.unlockedUntil, a.sessionPin = time.Time{}, ""
+		return SessionView{}
+	}
+	return SessionView{Unlocked: true, SecondsLeft: int((left + time.Second - 1) / time.Second), HasPin: a.sessionPin != ""}
+}
+
+// actionPin is the PIN to send with an action: the one typed for it, else the session's. ok is false when
+// there is none (or the session ran out), or when wrong tries have locked the prompt (msg says so).
+func (a *App) actionPin(typed string) (pin, msg string, ok bool) {
+	if m, locked := a.lockout(); locked {
+		return "", m, false
+	}
+	if typed = strings.TrimSpace(typed); typed != "" {
+		if !pinFormat.MatchString(typed) {
+			return "", "The IT PIN is 6 digits.", false
+		}
+		return typed, "", true
+	}
+	if sv := a.Session(); sv.HasPin {
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		return a.sessionPin, "", true
+	}
+	return "", needPinResult.Message, false
+}
+
+// pinRefused turns the server's answer to a PIN-gated action into a result: a wrong PIN counts toward the
+// lockout and asks again; too many tries says to wait. handled is false for any other error.
+func (a *App) pinRefused(err error) (res Result, handled bool) {
+	var apiErr *api.Error
+	if !errors.As(err, &apiErr) {
+		return Result{}, false
+	}
+	switch {
+	case apiErr.Status == 403 && apiErr.Code == "wrong_pin":
+		msg := a.wrongTry("That PIN is not correct.")
+		return Result{Message: msg, NeedsPin: true, FieldErrors: map[string]string{"pin": msg}}, true
+	case apiErr.Status == 429:
+		msg := "Too many wrong PINs. Try again in a minute."
+		return Result{Message: msg, NeedsPin: true, FieldErrors: map[string]string{"pin": msg}}, true
+	}
+	return Result{}, false
+}
+
+const offlineActionMessage = "Can't reach the server. Try again when this computer is online."
 
 // switchToKey makes the prompt ask for the enrollment key (the server could not check the PIN).
 func (a *App) switchToKey(reason, msg string) UnlockResult {
@@ -367,15 +451,17 @@ func (a *App) unlockWithKey(key string) UnlockResult {
 		why = "the server did not recognise this computer"
 	}
 	a.svc.LogEvent("warning", "system", "IT settings were opened with the enrollment key ("+why+")")
-	res := a.unlockOK()
+	res := a.unlockOK("")
 	res.Mode = modeKey
 	return res
 }
 
-// LockITSettings closes the IT settings again (and abandons a re-registration in progress).
+// LockITSettings ends the IT session (and abandons a re-registration in progress). The shell calls it when
+// the window is hidden.
 func (a *App) LockITSettings() {
 	a.mu.Lock()
-	a.unlocked, a.reregistering, a.pendingServer, a.pendingKey, a.keyReason = false, false, "", "", ""
+	a.unlockedUntil, a.sessionPin = time.Time{}, ""
+	a.reregistering, a.pendingServer, a.pendingKey, a.keyReason = false, "", "", ""
 	a.mu.Unlock()
 }
 
@@ -398,11 +484,7 @@ func (a *App) ITSettings() ITSettings {
 	return ITSettings{OK: true, ServerURL: st.ServerURL}
 }
 
-func (a *App) isUnlocked() bool {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	return a.unlocked
-}
+func (a *App) isUnlocked() bool { return a.Session().Unlocked }
 
 var errLocked = Result{Message: "Enter the IT PIN first."}
 
@@ -428,18 +510,28 @@ func (a *App) SaveServerURL(serverURL string) Result {
 // details as the signup prefill. It needs Settings unlocked first (with the enrollment key when the
 // server rejected this computer).
 func (a *App) StartReregistration() State {
-	a.mu.Lock()
-	if a.unlocked {
+	if a.isUnlocked() {
+		a.mu.Lock()
 		a.reregistering, a.pendingServer, a.pendingKey = true, "", ""
+		a.mu.Unlock()
 	}
-	a.mu.Unlock()
 	return a.State()
 }
 
-// Signup scans, registers, uploads the first scan and saves everything.
-func (a *App) Signup(f UserForm) Result {
-	if errs := validate(f, true); len(errs) > 0 {
-		return Result{Message: "Please fix the highlighted fields.", FieldErrors: errs}
+// Signup scans, registers, uploads the first scan and saves everything. pin is the current IT PIN
+// from the dashboard; the server checks it (after the enrollment key), and there is no offline fallback.
+func (a *App) Signup(f UserForm, pin string) Result {
+	errs := validate(f, true)
+	pin, pinMsg, pinOK := a.actionPin(pin)
+	if !pinOK {
+		errs["pin"] = pinMsg
+	}
+	if len(errs) > 0 {
+		msg := "Please fix the highlighted fields."
+		if len(errs) == 1 && !pinOK {
+			msg = pinMsg // only the PIN is wrong or locked: say why
+		}
+		return Result{Message: msg, FieldErrors: errs, NeedsPin: !pinOK}
 	}
 	a.mu.Lock()
 	server, key := a.pendingServer, a.pendingKey
@@ -452,8 +544,11 @@ func (a *App) Signup(f UserForm) Result {
 	}
 	defer a.busy.Unlock()
 
-	res, err := a.svc.Register(a.ctx, app.RegisterInput{ServerURL: server, Key: key, User: userFromForm(f), UploadFirstScan: true})
+	res, err := a.svc.Register(a.ctx, app.RegisterInput{ServerURL: server, Key: key, PIN: pin, User: userFromForm(f), UploadFirstScan: true})
 	if err != nil {
+		if res, handled := a.pinRefused(err); handled {
+			return res
+		}
 		return signupFailure(err, server)
 	}
 	out := Result{OK: true, Message: "Registered " + res.Hostname + "."}
@@ -464,7 +559,8 @@ func (a *App) Signup(f UserForm) Result {
 		out.Message += " The enrollment key could not be saved (" + err.Error() + "); Settings will need the server to open."
 	}
 	a.mu.Lock()
-	a.pendingServer, a.pendingKey, a.reregistering, a.unlocked, a.keyReason = "", "", false, false, ""
+	a.pendingServer, a.pendingKey, a.reregistering, a.keyReason = "", "", false, ""
+	a.unlockedUntil, a.sessionPin, a.pinFailures = time.Time{}, "", 0
 	a.mu.Unlock()
 	a.ready()
 	if res.UploadErr != nil {
@@ -480,7 +576,7 @@ func signupFailure(err error, server string) Result {
 			return Result{Message: "The server did not accept some of your details.", FieldErrors: fields}
 		}
 	}
-	return fail(friendly(err, server))
+	return fail(actionFriendly(err, server))
 }
 
 // Summary is the "My computer" card; Sections is the full scan, grouped.
@@ -557,13 +653,21 @@ type ReportResult struct {
 	ReportedAtText string `json:"reportedAt"`
 }
 
+// ReportNow needs the IT session's PIN (NeedsPin tells the window to ask for it first).
 func (a *App) ReportNow() ReportResult {
+	pin, msg, ok := a.actionPin("")
+	if !ok {
+		return ReportResult{Result: Result{Message: msg, NeedsPin: true}, Home: Home{OK: true}}
+	}
 	if !a.busy.TryLock() {
 		return ReportResult{Result: fail("Another action is still running. Please wait.")}
 	}
-	_, dup, _, err := a.svc.Report(a.ctx, "manual")
+	_, dup, _, err := a.svc.Report(a.ctx, "manual", pin)
 	a.busy.Unlock()
 	if err != nil {
+		if res, handled := a.pinRefused(err); handled {
+			return ReportResult{Result: res, Home: Home{OK: true}}
+		}
 		return ReportResult{Result: a.failure(err), Home: a.MyComputer()}
 	}
 	home := a.MyComputer()
@@ -575,16 +679,29 @@ func (a *App) ReportNow() ReportResult {
 	}
 }
 
-// UpdateUser saves corrected details. A different employee ID hands the computer to that person.
-func (a *App) UpdateUser(f UserForm) Result {
-	if errs := validate(f, false); len(errs) > 0 {
-		return Result{Message: "Please fix the highlighted fields.", FieldErrors: errs}
+// UpdateUser saves corrected details. A different employee ID hands the computer to that person. pin is
+// the IT PIN typed on the form; empty uses the session's. The server checks it.
+func (a *App) UpdateUser(f UserForm, pin string) Result {
+	errs := validate(f, false)
+	pin, pinMsg, pinOK := a.actionPin(pin)
+	if !pinOK {
+		errs["pin"] = pinMsg
+	}
+	if len(errs) > 0 {
+		msg := "Please fix the highlighted fields."
+		if len(errs) == 1 && !pinOK {
+			msg = pinMsg // only the PIN is wrong or locked: say why
+		}
+		return Result{Message: msg, FieldErrors: errs, NeedsPin: !pinOK}
 	}
 	if !a.busy.TryLock() {
 		return fail("Another action is still running. Please wait.")
 	}
 	defer a.busy.Unlock()
-	if _, err := a.svc.UpdateUser(a.ctx, userFromForm(f)); err != nil {
+	if _, err := a.svc.UpdateUser(a.ctx, userFromForm(f), pin); err != nil {
+		if res, handled := a.pinRefused(err); handled {
+			return res
+		}
 		var apiErr *api.Error
 		if errors.As(err, &apiErr) && apiErr.Status == 400 {
 			if fields := fieldErrorsFromDetails(apiErr); len(fields) > 0 {
@@ -593,6 +710,12 @@ func (a *App) UpdateUser(f UserForm) Result {
 		}
 		return a.failure(err)
 	}
+	a.mu.Lock()
+	if a.sessionPin == "" || !a.unlockedUntil.After(a.now()) {
+		// The server accepted this PIN: it opens the IT session like the Settings prompt does.
+		a.unlockedUntil, a.sessionPin, a.pinFailures = a.now().Add(unlockSession), pin, 0
+	}
+	a.mu.Unlock()
 	return Result{OK: true, Message: "Your details were saved."}
 }
 
@@ -606,7 +729,7 @@ func (a *App) failure(err error) Result {
 	if st != nil {
 		server = st.ServerURL
 	}
-	return fail(friendly(err, server))
+	return fail(actionFriendly(err, server))
 }
 
 // ---- validation and wording ----
@@ -666,6 +789,15 @@ func capitalize(s string) string {
 	return strings.ToUpper(s[:1]) + s[1:]
 }
 
+// actionFriendly words a failed PIN-gated action. Unlike Settings, signup, Update my details and Report now
+// have no offline fallback: without the server the PIN cannot be checked.
+func actionFriendly(err error, server string) string {
+	if strings.Contains(err.Error(), "cannot reach") {
+		return offlineActionMessage
+	}
+	return friendly(err, server)
+}
+
 // friendly turns an error into a sentence for the user.
 func friendly(err error, server string) string {
 	var apiErr *api.Error
@@ -674,6 +806,10 @@ func friendly(err error, server string) string {
 		return reregisterMessage
 	case errors.As(err, &apiErr):
 		switch {
+		case apiErr.Status == 403 && apiErr.Code == "wrong_pin":
+			return "That PIN is not correct."
+		case apiErr.Status == 429:
+			return "Too many wrong PINs. Try again in a minute."
 		case apiErr.Status == 403:
 			return "The enrollment key is not correct. Ask IT for the right key."
 		case apiErr.Code == "enrollment_disabled" || apiErr.Status == 503:

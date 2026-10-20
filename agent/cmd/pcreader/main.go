@@ -31,12 +31,15 @@ var svc = app.New(version)
 const usage = `pcreader — PC_READER device agent
 
 Usage:
-  pcreader register --server URL --key KEY --name NAME --employee-id ID --department DEPT --accept-policy [options]
-  pcreader scan [--upload] [--out FILE] [--type manual|startup|scheduled|on_demand]
+  pcreader register --server URL --key KEY --pin PIN --name NAME --employee-id ID --department DEPT --accept-policy [options]
+  pcreader scan [--upload [--pin PIN]] [--out FILE] [--type manual|startup|scheduled|on_demand]
   pcreader capture-raw --out DIR
   pcreader listen [--from-raw DIR]
   pcreader status
   pcreader version
+
+PIN is the hourly IT PIN shown on the PC_READER dashboard (IT PIN page). register needs it, and so
+does a manual scan upload; scheduled, startup and on_demand scans do not.
 
 Run "pcreader <command> -h" for a command's options.
 `
@@ -98,6 +101,7 @@ func cmdRegister(ctx context.Context, args []string, stdout, stderr io.Writer) e
 	fs := newFlags("register", stderr)
 	server := fs.String("server", "", "server URL, e.g. http://192.168.1.10:3000 (required)")
 	key := fs.String("key", os.Getenv("PCREADER_ENROLLMENT_KEY"), "enrollment key from IT (or set PCREADER_ENROLLMENT_KEY)")
+	pin := fs.String("pin", "", "the current hourly IT PIN from the dashboard (required)")
 	name := fs.String("name", "", "user's full name (required)")
 	employeeID := fs.String("employee-id", "", "employee ID (required)")
 	department := fs.String("department", "", "department (required)")
@@ -115,7 +119,7 @@ func cmdRegister(ctx context.Context, args []string, stdout, stderr io.Writer) e
 		return err
 	}
 	var missing []string
-	for flagName, v := range map[string]string{"key": *key, "name": *name, "employee-id": *employeeID, "department": *department} {
+	for flagName, v := range map[string]string{"key": *key, "pin": *pin, "name": *name, "employee-id": *employeeID, "department": *department} {
 		if strings.TrimSpace(v) == "" {
 			missing = append(missing, "--"+flagName)
 		}
@@ -132,6 +136,7 @@ func cmdRegister(ctx context.Context, args []string, stdout, stderr io.Writer) e
 	res, err := svc.Register(ctx, app.RegisterInput{
 		ServerURL: serverURL,
 		Key:       *key,
+		PIN:       *pin,
 		User: payload.UserDetails{
 			FullName:   *name,
 			EmployeeID: *employeeID,
@@ -154,6 +159,7 @@ func cmdScan(ctx context.Context, args []string, stdout, stderr io.Writer) error
 	upload := fs.Bool("upload", false, "send the scan to the server")
 	out := fs.String("out", "", "write the scan payload to this JSON file")
 	scanType := fs.String("type", "manual", "scan type: manual, startup, scheduled or on_demand")
+	pin := fs.String("pin", "", "the current hourly IT PIN from the dashboard (required to upload a manual scan)")
 	server := fs.String("server", "", "override the registered server URL")
 	fromRaw := fs.String("from-raw", "", "use a folder saved by capture-raw instead of scanning")
 	if err := fs.Parse(args); err != nil {
@@ -165,6 +171,9 @@ func cmdScan(ctx context.Context, args []string, stdout, stderr io.Writer) error
 		return fmt.Errorf("--type must be manual, startup, scheduled or on_demand")
 	}
 
+	if *upload && *scanType == "manual" && strings.TrimSpace(*pin) == "" {
+		return errors.New("uploading a manual scan needs the current IT PIN: add --pin (shown on the dashboard)")
+	}
 	collectedAt := time.Now().UTC()
 	s, err := svc.Collect(ctx, *fromRaw)
 	if err != nil {
@@ -186,7 +195,7 @@ func cmdScan(ctx context.Context, args []string, stdout, stderr io.Writer) error
 		return nil
 	}
 
-	id, dup, err := svc.Upload(ctx, s, collectedAt, app.UploadOptions{ScanType: *scanType, ServerURL: *server})
+	id, dup, err := svc.Upload(ctx, s, collectedAt, app.UploadOptions{ScanType: *scanType, PIN: *pin, ServerURL: *server})
 	if err != nil {
 		return err
 	}

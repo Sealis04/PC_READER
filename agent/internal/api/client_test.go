@@ -103,7 +103,7 @@ func TestUpdateUserPutsDetailsWithToken(t *testing.T) {
 		}
 		reply(200, `{"full_name":"A B","employee_id":"E1","email":null,"department":"IT","position":null,"phone":null}`)(w, r)
 	})
-	got, err := c.UpdateUser(context.Background(), "tok", payload.UserDetails{FullName: "A B", EmployeeID: "E1", Department: "IT"})
+	got, err := c.UpdateUser(context.Background(), "tok", payload.UserDetails{FullName: "A B", EmployeeID: "E1", Department: "IT"}, "123456")
 	if err != nil || got.EmployeeID != "E1" {
 		t.Fatalf("got %+v %v", got, err)
 	}
@@ -111,7 +111,7 @@ func TestUpdateUserPutsDetailsWithToken(t *testing.T) {
 
 func TestUpdateUserUnauthorized(t *testing.T) {
 	c, calls := client(t, reply(401, `{"error":"unauthorized"}`))
-	if _, err := c.UpdateUser(context.Background(), "tok", payload.UserDetails{}); !errors.Is(err, ErrUnauthorized) || *calls != 1 {
+	if _, err := c.UpdateUser(context.Background(), "tok", payload.UserDetails{}, "123456"); !errors.Is(err, ErrUnauthorized) || *calls != 1 {
 		t.Fatalf("err %v calls %d", err, *calls)
 	}
 }
@@ -170,5 +170,28 @@ func TestUnlockSettingsDoesNotRetry(t *testing.T) {
 		if err := c.UnlockSettings(context.Background(), "tok", "123456"); !errors.As(err, &apiErr) || apiErr.Status != status || *calls != 1 {
 			t.Fatalf("status %d: err %v, calls %d", status, err, *calls)
 		}
+	}
+}
+
+func TestWrongPinRateLimitIsNotRetried(t *testing.T) {
+	c, calls := client(t, reply(429, `{"error":"too_many_attempts","message":"Too many wrong PINs"}`))
+	_, err := c.UpdateUser(context.Background(), "tok", payload.UserDetails{}, "123456")
+	var apiErr *Error
+	if !errors.As(err, &apiErr) || apiErr.Status != 429 || *calls != 1 {
+		t.Fatalf("err %v calls %d", err, *calls)
+	}
+}
+
+func TestUpdateUserSendsThePin(t *testing.T) {
+	var got payload.UserRequest
+	c, _ := client(t, func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&got)
+		reply(200, `{"full_name":"A B","employee_id":"E1","email":null,"department":"IT","position":null,"phone":null}`)(w, r)
+	})
+	if _, err := c.UpdateUser(context.Background(), "tok", payload.UserDetails{FullName: "A B", EmployeeID: "E1", Department: "IT"}, "123456"); err != nil {
+		t.Fatal(err)
+	}
+	if got.ITPIN != "123456" || got.EmployeeID != "E1" {
+		t.Fatalf("sent %+v", got)
 	}
 }

@@ -29,13 +29,14 @@ func TestEndToEnd(t *testing.T) {
 			t.Setenv("PCREADER_TOKEN_STORE", "file")
 			raw := contract.Fixture("raw/" + platform)
 
-			out := mustRun(t, "register", "--server", server, "--key", key, "--name", "E2E "+platform,
+			pin := currentPin(t, server)
+			out := mustRun(t, "register", "--server", server, "--key", key, "--pin", pin, "--name", "E2E "+platform,
 				"--employee-id", "E2E-"+platform, "--department", "IT", "--accept-policy", "--from-raw", raw)
 			if !strings.Contains(out, "Registered") {
 				t.Fatalf("unexpected register output: %s", out)
 			}
 			for i := 0; i < 2; i++ {
-				if out := mustRun(t, "scan", "--upload", "--from-raw", raw); !strings.Contains(out, "Uploaded scan") {
+				if out := mustRun(t, "scan", "--upload", "--pin", pin, "--from-raw", raw); !strings.Contains(out, "Uploaded scan") {
 					t.Fatalf("unexpected scan output: %s", out)
 				}
 			}
@@ -43,16 +44,52 @@ func TestEndToEnd(t *testing.T) {
 				t.Fatalf("unexpected status: %s", out)
 			}
 
+			// A manual upload without the PIN is refused before anything is sent; a wrong PIN is refused by the server.
+			var o, e bytes.Buffer
+			if code := run(context.Background(), []string{"scan", "--upload", "--from-raw", raw}, &o, &e); code == 0 || !strings.Contains(e.String(), "--pin") {
+				t.Fatalf("expected a --pin error, got %d: %s", code, e.String())
+			}
+			wrong := "000000"
+			if pin == wrong {
+				wrong = "000001"
+			}
+			o.Reset()
+			e.Reset()
+			if code := run(context.Background(), []string{"scan", "--upload", "--pin", wrong, "--from-raw", raw}, &o, &e); code == 0 || !strings.Contains(e.String(), "wrong_pin") {
+				t.Fatalf("expected wrong_pin, got %d: %s", code, e.String())
+			}
+			// Scans the server asked for (on_demand) need no PIN.
+			if out := mustRun(t, "scan", "--upload", "--type", "on_demand", "--from-raw", raw); !strings.Contains(out, "Uploaded scan") {
+				t.Fatalf("unexpected on_demand output: %s", out)
+			}
+
 			// A wrong key is refused and reported, not retried forever.
 			t.Setenv("PCREADER_HOME", t.TempDir())
 			var stdout, stderr bytes.Buffer
-			code := run(context.Background(), []string{"register", "--server", server, "--key", "wrong", "--name", "x",
+			code := run(context.Background(), []string{"register", "--server", server, "--key", "wrong", "--pin", pin, "--name", "x",
 				"--employee-id", "x", "--department", "x", "--accept-policy", "--from-raw", raw}, &stdout, &stderr)
 			if code == 0 || !strings.Contains(stderr.String(), "403") {
 				t.Fatalf("expected 403 failure, got %d: %s", code, stderr.String())
 			}
 		})
 	}
+}
+
+// currentPin reads the hourly IT PIN the way IT does, from the dashboard's IT PIN endpoint.
+func currentPin(t *testing.T, server string) string {
+	t.Helper()
+	res, err := http.Get(server + "/api/dashboard/it-pin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	var body struct {
+		Pin string `json:"pin"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil || len(body.Pin) != 6 {
+		t.Fatalf("no PIN from the server (HTTP %d): %v", res.StatusCode, err)
+	}
+	return body.Pin
 }
 
 func mustRun(t *testing.T, args ...string) string {
@@ -127,7 +164,7 @@ func TestEndToEndListen(t *testing.T) {
 	t.Setenv("PCREADER_HOME", t.TempDir())
 	t.Setenv("PCREADER_TOKEN_STORE", "file")
 	raw := contract.Fixture("raw/windows")
-	mustRun(t, "register", "--server", server, "--key", os.Getenv("PCREADER_E2E_KEY"), "--name", "E2E Listener",
+	mustRun(t, "register", "--server", server, "--key", os.Getenv("PCREADER_E2E_KEY"), "--pin", currentPin(t, server), "--name", "E2E Listener",
 		"--employee-id", "E2E-listen", "--department", "IT", "--accept-policy", "--from-raw", raw)
 	var deviceID string
 	for _, line := range strings.Split(mustRun(t, "status"), "\n") {

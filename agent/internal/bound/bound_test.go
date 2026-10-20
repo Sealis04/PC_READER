@@ -3,6 +3,7 @@ package bound
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -19,12 +20,17 @@ import (
 	rd "github.com/sealis04/pc_reader/agent/internal/scan/rawdata"
 )
 
+// testPin is the IT PIN the fake server accepts (fake.pin starts with it).
+const testPin = "482913"
+
 type fake struct {
 	*httptest.Server
 	unauthorized bool
 	registerBody string // overrides the register reply (status 400) when set
 	registerCode int
 	updates      []payload.UserDetails
+	scans        []payload.ScanRequest
+	userCalls    int
 	pin          string // the current IT PIN the fake server accepts
 	unlockStatus int    // overrides the settings-unlock reply (e.g. 500) when set
 	unlockCalls  int
@@ -36,7 +42,7 @@ func setup(t *testing.T) (*App, *fake) {
 	t.Setenv("PCREADER_TOKEN_STORE", "file")
 	config.HashIterations = 1000 // fast hashing in tests
 	t.Cleanup(func() { config.HashIterations = 600_000 })
-	f := &fake{pin: "482913"}
+	f := &fake{pin: testPin}
 	f.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
@@ -51,6 +57,9 @@ func setup(t *testing.T) (*App, *fake) {
 			} else if req.EnrollmentKey != "good-key" {
 				w.WriteHeader(403)
 				_, _ = w.Write([]byte(`{"error":"invalid_enrollment_key","message":"Enrollment key is not valid"}`))
+			} else if req.ITPIN != f.pin {
+				w.WriteHeader(403)
+				_, _ = w.Write([]byte(`{"error":"wrong_pin","message":"That PIN is not the current IT PIN"}`))
 			} else {
 				w.WriteHeader(201)
 				_, _ = w.Write([]byte(`{"device_id":"dev-1","device_token":"tok-1","checkin_interval_seconds":300}`))
@@ -73,13 +82,27 @@ func setup(t *testing.T) (*App, *fake) {
 			w.WriteHeader(401)
 			_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
 		case r.URL.Path == "/api/agent/scans":
+			var req payload.ScanRequest
+			_ = json.NewDecoder(r.Body).Decode(&req)
+			f.scans = append(f.scans, req)
+			if req.ScanType == "manual" && req.ITPIN != f.pin {
+				w.WriteHeader(403)
+				_, _ = w.Write([]byte(`{"error":"wrong_pin","message":"Manual scans need the current IT PIN"}`))
+				return
+			}
 			w.WriteHeader(201)
 			_, _ = w.Write([]byte(`{"scan_id":"scan-1"}`))
 		case r.URL.Path == "/api/agent/user":
-			var u payload.UserDetails
+			var u payload.UserRequest
 			_ = json.NewDecoder(r.Body).Decode(&u)
-			f.updates = append(f.updates, u)
-			_ = json.NewEncoder(w).Encode(u)
+			f.userCalls++
+			if u.ITPIN != f.pin {
+				w.WriteHeader(403)
+				_, _ = w.Write([]byte(`{"error":"wrong_pin","message":"That PIN is not the current IT PIN"}`))
+				return
+			}
+			f.updates = append(f.updates, u.UserDetails)
+			_ = json.NewEncoder(w).Encode(u.UserDetails)
 		}
 	}))
 	t.Cleanup(f.Close)
@@ -102,7 +125,7 @@ func register(t *testing.T, a *App, f *fake) {
 	if res := a.CheckConnection(f.URL, "good-key"); !res.OK {
 		t.Fatalf("connection: %+v", res)
 	}
-	if res := a.Signup(form()); !res.OK {
+	if res := a.Signup(form(), testPin); !res.OK {
 		t.Fatalf("signup: %+v", res)
 	}
 }
@@ -124,7 +147,7 @@ func TestFirstLaunchFlowSetupSignupHome(t *testing.T) {
 	if st := a.State(); st.Screen != "signup" || st.ServerURL != f.URL {
 		t.Fatalf("state %+v", st)
 	}
-	res := a.Signup(form())
+	res := a.Signup(form(), testPin)
 	if !res.OK || !strings.Contains(res.Message, "Registered") {
 		t.Fatalf("signup: %+v", res)
 	}
@@ -152,7 +175,7 @@ func TestFirstLaunchFlowSetupSignupHome(t *testing.T) {
 func TestSignupValidatesBeforeContactingServer(t *testing.T) {
 	a, f := setup(t)
 	a.CheckConnection(f.URL, "good-key")
-	res := a.Signup(UserForm{Email: "nope"})
+	res := a.Signup(UserForm{Email: "nope"}, testPin)
 	for _, k := range []string{"fullName", "employeeId", "department", "email", "policyAccepted"} {
 		if res.FieldErrors[k] == "" {
 			t.Errorf("no error for %s: %+v", k, res.FieldErrors)
@@ -165,7 +188,7 @@ func TestSignupValidatesBeforeContactingServer(t *testing.T) {
 
 func TestSignupNeedsSetupFirst(t *testing.T) {
 	a, _ := setup(t)
-	if res := a.Signup(form()); res.OK || !strings.Contains(res.Message, "IT setup") {
+	if res := a.Signup(form(), testPin); res.OK || !strings.Contains(res.Message, "IT setup") {
 		t.Fatalf("%+v", res)
 	}
 }
@@ -173,7 +196,7 @@ func TestSignupNeedsSetupFirst(t *testing.T) {
 func TestSignupWrongKeyAndUnreachableServerSpeakPlainly(t *testing.T) {
 	a, f := setup(t)
 	a.CheckConnection(f.URL, "wrong")
-	if res := a.Signup(form()); res.OK || !strings.Contains(res.Message, "enrollment key is not correct") {
+	if res := a.Signup(form(), testPin); res.OK || !strings.Contains(res.Message, "enrollment key is not correct") {
 		t.Fatalf("%+v", res)
 	}
 	if a.State().Screen != "signup" {
@@ -189,7 +212,7 @@ func TestSignupMapsServerFieldErrors(t *testing.T) {
 	a, f := setup(t)
 	f.registerCode, f.registerBody = 400, `{"error":"invalid_payload","message":"bad","details":[{"path":"/user/email","message":"must match format \"email\""}]}`
 	a.CheckConnection(f.URL, "good-key")
-	res := a.Signup(form())
+	res := a.Signup(form(), testPin)
 	if res.OK || res.FieldErrors["email"] == "" {
 		t.Fatalf("%+v", res)
 	}
@@ -198,6 +221,9 @@ func TestSignupMapsServerFieldErrors(t *testing.T) {
 func TestReportNowUpdatesTimeAndHandlesRejectedToken(t *testing.T) {
 	a, f := setup(t)
 	register(t, a, f)
+	if res := a.UnlockITSettings(testPin); !res.OK {
+		t.Fatalf("%+v", res)
+	}
 	res := a.ReportNow()
 	if !res.OK || !strings.Contains(res.Message, "specs were sent") || res.Home.LastReportAt == "Never" {
 		t.Fatalf("%+v", res)
@@ -214,12 +240,12 @@ func TestUpdateUserSavesAndValidates(t *testing.T) {
 	register(t, a, f)
 	bad := form()
 	bad.Department = ""
-	if res := a.UpdateUser(bad); res.OK || res.FieldErrors["department"] == "" || len(f.updates) != 0 {
+	if res := a.UpdateUser(bad, testPin); res.OK || res.FieldErrors["department"] == "" || len(f.updates) != 0 {
 		t.Fatalf("%+v", res)
 	}
 	upd := form()
 	upd.Department, upd.Phone = "Budget", "0917 000 0000"
-	if res := a.UpdateUser(upd); !res.OK {
+	if res := a.UpdateUser(upd, testPin); !res.OK {
 		t.Fatalf("%+v", res)
 	}
 	if len(f.updates) != 1 || f.updates[0].Department != "Budget" || f.updates[0].Email != nil || *f.updates[0].Phone != "0917 000 0000" {
@@ -229,7 +255,7 @@ func TestUpdateUserSavesAndValidates(t *testing.T) {
 		t.Fatalf("home shows %+v", h.AssignedUser)
 	}
 	f.unauthorized = true
-	if res := a.UpdateUser(upd); res.OK || !res.NeedsReregistration {
+	if res := a.UpdateUser(upd, testPin); res.OK || !res.NeedsReregistration {
 		t.Fatalf("%+v", res)
 	}
 }
@@ -251,7 +277,7 @@ func TestReregistrationKeepsDetailsAsPrefill(t *testing.T) {
 	if a.State().Screen != "signup" {
 		t.Fatal("not on signup")
 	}
-	if res := a.Signup(form()); !res.OK {
+	if res := a.Signup(form(), testPin); !res.OK {
 		t.Fatalf("%+v", res)
 	}
 	if a.State().Screen != "home" {
@@ -261,7 +287,7 @@ func TestReregistrationKeepsDetailsAsPrefill(t *testing.T) {
 
 func TestMachineRegisteredByCLIOpensHomeWithLocalScan(t *testing.T) {
 	a, f := setup(t)
-	if _, err := a.svc.Register(context.Background(), app.RegisterInput{ServerURL: f.URL, Key: "good-key", User: payload.UserDetails{FullName: "A", EmployeeID: "E", Department: "D"}}); err != nil {
+	if _, err := a.svc.Register(context.Background(), app.RegisterInput{ServerURL: f.URL, Key: "good-key", PIN: testPin, User: payload.UserDetails{FullName: "A", EmployeeID: "E", Department: "D"}}); err != nil {
 		t.Fatal(err)
 	}
 	if st := a.State(); st.Screen != "home" || st.ServerURL != f.URL {
@@ -320,7 +346,7 @@ func TestSetupSavesOnlyAHashOfTheEnrollmentKey(t *testing.T) {
 	if res := a.CheckConnection(f.URL, "good-key"); !res.OK {
 		t.Fatalf("%+v", res)
 	}
-	if res := a.Signup(form()); !res.OK {
+	if res := a.Signup(form(), testPin); !res.OK {
 		t.Fatalf("%+v", res)
 	}
 	if txt := configText(t); strings.Contains(txt, "good-key") {
@@ -335,13 +361,13 @@ func TestSetupSavesOnlyAHashOfTheEnrollmentKey(t *testing.T) {
 	}
 }
 
-func TestSetupAsksForNoPin(t *testing.T) {
+func TestSetupStepAsksForNoPinFieldsButSignupNeedsThePin(t *testing.T) {
 	a, f := setup(t)
-	// The enrollment key and the address are all IT types; there are no PIN fields any more.
+	// IT setup is the enrollment key and the address; the PIN is typed with the signup form.
 	if res := a.CheckConnection(f.URL, "good-key"); !res.OK {
 		t.Fatalf("%+v", res)
 	}
-	if res := a.Signup(form()); !res.OK {
+	if res := a.Signup(form(), testPin); !res.OK {
 		t.Fatalf("%+v", res)
 	}
 	if res := a.CheckConnection(f.URL, "good-key"); res.OK {
@@ -352,7 +378,7 @@ func TestSetupAsksForNoPin(t *testing.T) {
 func TestFailedSignupDoesNotSaveTheKeyHash(t *testing.T) {
 	a, f := setup(t)
 	a.CheckConnection(f.URL, "wrong-key")
-	if res := a.Signup(form()); res.OK {
+	if res := a.Signup(form(), testPin); res.OK {
 		t.Fatalf("%+v", res)
 	}
 	if cfg, _ := config.Load(); cfg.EnrollmentKeyHash != nil {
@@ -366,7 +392,7 @@ func registeredWithPin(t *testing.T) (*App, *fake) {
 	if res := a.CheckConnection(f.URL, "good-key"); !res.OK {
 		t.Fatalf("%+v", res)
 	}
-	if res := a.Signup(form()); !res.OK {
+	if res := a.Signup(form(), testPin); !res.OK {
 		t.Fatalf("%+v", res)
 	}
 	return a, f
@@ -550,7 +576,7 @@ func TestWrongKeysAndPinsShareOneLockout(t *testing.T) {
 func TestOfflineWithoutSavedKeyCannotUnlock(t *testing.T) {
 	a, f := setup(t)
 	// Registered by the CLI or an older app version: no enrollment key hash on this computer.
-	if _, err := a.svc.Register(context.Background(), app.RegisterInput{ServerURL: f.URL, Key: "good-key", User: payload.UserDetails{FullName: "A", EmployeeID: "E", Department: "D"}}); err != nil {
+	if _, err := a.svc.Register(context.Background(), app.RegisterInput{ServerURL: f.URL, Key: "good-key", PIN: testPin, User: payload.UserDetails{FullName: "A", EmployeeID: "E", Department: "D"}}); err != nil {
 		t.Fatal(err)
 	}
 	f.unlockStatus = 500
@@ -596,7 +622,7 @@ func TestRejectedTokenAsksForTheEnrollmentKeyAndRegistersAgain(t *testing.T) {
 	if res := a.CheckConnection(f.URL, "good-key"); !res.OK {
 		t.Fatalf("%+v", res)
 	}
-	if res := a.Signup(form()); !res.OK {
+	if res := a.Signup(form(), testPin); !res.OK {
 		t.Fatalf("%+v", res)
 	}
 }
@@ -670,7 +696,7 @@ func TestReregisterThroughITSettingsRefreshesTheKeyHash(t *testing.T) {
 	if res := a.CheckConnection(f.URL, "good-key"); !res.OK {
 		t.Fatalf("%+v", res)
 	}
-	if res := a.Signup(form()); !res.OK {
+	if res := a.Signup(form(), testPin); !res.OK {
 		t.Fatalf("%+v", res)
 	}
 	if cfg, _ := config.Load(); cfg.EnrollmentKeyHash == nil || !cfg.EnrollmentKeyHash.Verify("good-key") {
@@ -683,7 +709,7 @@ func TestReregisterThroughITSettingsRefreshesTheKeyHash(t *testing.T) {
 
 func TestReregistrationGivesACLIRegisteredComputerItsKeyHash(t *testing.T) {
 	a, f := setup(t)
-	if _, err := a.svc.Register(context.Background(), app.RegisterInput{ServerURL: f.URL, Key: "good-key", User: payload.UserDetails{FullName: "A", EmployeeID: "E", Department: "D"}}); err != nil {
+	if _, err := a.svc.Register(context.Background(), app.RegisterInput{ServerURL: f.URL, Key: "good-key", PIN: testPin, User: payload.UserDetails{FullName: "A", EmployeeID: "E", Department: "D"}}); err != nil {
 		t.Fatal(err)
 	}
 	if cfg, _ := config.Load(); cfg.EnrollmentKeyHash != nil {
@@ -692,7 +718,7 @@ func TestReregistrationGivesACLIRegisteredComputerItsKeyHash(t *testing.T) {
 	a.UnlockITSettings(f.pin)
 	a.StartReregistration()
 	a.CheckConnection(f.URL, "good-key")
-	if res := a.Signup(form()); !res.OK {
+	if res := a.Signup(form(), testPin); !res.OK {
 		t.Fatalf("%+v", res)
 	}
 	if cfg, _ := config.Load(); cfg.EnrollmentKeyHash == nil || !cfg.EnrollmentKeyHash.Verify("good-key") {
@@ -732,13 +758,13 @@ func TestOnReadyFiresAfterSignupButNotAfterFailedSignup(t *testing.T) {
 	if res := a.CheckConnection(f.URL, "wrong-key"); !res.OK {
 		t.Fatalf("%+v", res)
 	}
-	if res := a.Signup(form()); res.OK || ready != 0 {
+	if res := a.Signup(form(), testPin); res.OK || ready != 0 {
 		t.Fatalf("wrong key: res=%+v ready=%d", res, ready)
 	}
 	a.mu.Lock()
 	a.pendingKey = "good-key"
 	a.mu.Unlock()
-	if res := a.Signup(form()); !res.OK || ready != 1 {
+	if res := a.Signup(form(), testPin); !res.OK || ready != 1 {
 		t.Fatalf("signup: res=%+v ready=%d", res, ready)
 	}
 }
@@ -768,5 +794,237 @@ func TestConnectionStatusAndDetailsPromptState(t *testing.T) {
 	}
 	if again := a.TakePrompt(); again.Show {
 		t.Fatalf("prompt shown twice: %+v", again)
+	}
+}
+
+// ---- the app is view-only without the hourly IT PIN ----
+
+func unlockApp(t *testing.T, a *App) {
+	t.Helper()
+	if res := a.UnlockITSettings(testPin); !res.OK {
+		t.Fatalf("unlock: %+v", res)
+	}
+}
+
+func TestViewingNeedsNoPin(t *testing.T) {
+	a, f := setup(t)
+	register(t, a, f)
+	if h := a.MyComputer(); !h.OK || len(h.Sections) == 0 {
+		t.Fatalf("%+v", h)
+	}
+	if sv := a.Session(); sv.Unlocked {
+		t.Fatalf("a fresh window is unlocked: %+v", sv)
+	}
+}
+
+func TestReportNowNeedsThePinAndSendsNothingWithout(t *testing.T) {
+	a, f := setup(t)
+	register(t, a, f)
+	before := len(f.scans)
+	res := a.ReportNow()
+	if res.OK || !res.NeedsPin || len(f.scans) != before {
+		t.Fatalf("%+v (scans %d -> %d)", res, before, len(f.scans))
+	}
+	unlockApp(t, a)
+	if res := a.ReportNow(); !res.OK || len(f.scans) != before+1 || f.scans[before].ITPIN != testPin || f.scans[before].ScanType != "manual" {
+		t.Fatalf("%+v scans %+v", res, f.scans)
+	}
+}
+
+func TestOneCorrectPinCoversSeveralActionsUntilItExpires(t *testing.T) {
+	a, f := setup(t)
+	register(t, a, f)
+	clock := time.Date(2026, 10, 20, 9, 0, 0, 0, time.UTC)
+	a.now = func() time.Time { return clock }
+	unlockApp(t, a)
+	if sv := a.Session(); !sv.Unlocked || !sv.HasPin || sv.SecondsLeft != 600 {
+		t.Fatalf("session %+v", sv)
+	}
+	clock = clock.Add(9*time.Minute + 59*time.Second)
+	if res := a.ReportNow(); !res.OK {
+		t.Fatalf("report inside the session: %+v", res)
+	}
+	if res := a.UpdateUser(form(), ""); !res.OK {
+		t.Fatalf("update inside the session (no PIN typed): %+v", res)
+	}
+	clock = clock.Add(2 * time.Second) // 10 minutes and 1 second after the unlock
+	if sv := a.Session(); sv.Unlocked {
+		t.Fatalf("still unlocked after 10 minutes: %+v", sv)
+	}
+	calls := len(f.scans)
+	if res := a.ReportNow(); res.OK || !res.NeedsPin || len(f.scans) != calls {
+		t.Fatalf("report after expiry: %+v", res)
+	}
+	if res := a.ITSettings(); res.OK {
+		t.Fatal("Settings still readable after expiry")
+	}
+}
+
+func TestHidingTheWindowLocksTheApp(t *testing.T) {
+	a, f := setup(t)
+	register(t, a, f)
+	unlockApp(t, a)
+	a.LockITSettings() // what the shell calls when the window is hidden
+	if sv := a.Session(); sv.Unlocked || sv.HasPin {
+		t.Fatalf("%+v", sv)
+	}
+	if res := a.ReportNow(); res.OK || !res.NeedsPin {
+		t.Fatalf("%+v", res)
+	}
+	if a.sessionPin != "" {
+		t.Fatal("the PIN was kept in memory after locking")
+	}
+}
+
+func TestEnrollmentKeyUnlockOpensSettingsButNotActions(t *testing.T) {
+	a, f := registeredWithPin(t)
+	f.unlockStatus = 500
+	if res := a.UnlockITSettings(testPin); res.Mode != "key" {
+		t.Fatalf("%+v", res)
+	}
+	if res := a.UnlockITSettings("good-key"); !res.OK {
+		t.Fatalf("%+v", res)
+	}
+	if sv := a.Session(); !sv.Unlocked || sv.HasPin {
+		t.Fatalf("session %+v", sv)
+	}
+	if res := a.ReportNow(); res.OK || !res.NeedsPin {
+		t.Fatalf("a key unlock allowed Report now: %+v", res)
+	}
+	if res := a.UpdateUser(form(), ""); res.OK || !res.NeedsPin || f.userCalls != 0 {
+		t.Fatalf("a key unlock allowed an update: %+v", res)
+	}
+}
+
+func TestUpdateUserNeedsThePinTypedOrFromTheSession(t *testing.T) {
+	a, f := setup(t)
+	register(t, a, f)
+	upd := form()
+	upd.Department = "Budget"
+	if res := a.UpdateUser(upd, ""); res.OK || !res.NeedsPin || res.FieldErrors["pin"] == "" || f.userCalls != 0 {
+		t.Fatalf("%+v", res)
+	}
+	if res := a.UpdateUser(upd, "12ab"); res.OK || !strings.Contains(res.FieldErrors["pin"], "6 digits") || f.userCalls != 0 {
+		t.Fatalf("%+v", res)
+	}
+	if res := a.UpdateUser(upd, "000000"); res.OK || !res.NeedsPin || !strings.Contains(res.FieldErrors["pin"], "4 tries left") || len(f.updates) != 0 {
+		t.Fatalf("%+v", res)
+	}
+	if res := a.UpdateUser(upd, testPin); !res.OK || len(f.updates) != 1 {
+		t.Fatalf("%+v", res)
+	}
+	// The accepted PIN opens the session, so Report now works without asking again.
+	if sv := a.Session(); !sv.Unlocked || !sv.HasPin {
+		t.Fatalf("session %+v", sv)
+	}
+	if res := a.ReportNow(); !res.OK {
+		t.Fatalf("%+v", res)
+	}
+}
+
+func TestDashboardPromptDoesNotSkipThePin(t *testing.T) {
+	a, f := setup(t)
+	register(t, a, f)
+	a.RaisePrompt()
+	if p := a.TakePrompt(); !p.Show || !strings.Contains(p.Message, "IT needs to enter the PIN to save") {
+		t.Fatalf("%+v", p)
+	}
+	if res := a.UpdateUser(form(), ""); res.OK || !res.NeedsPin || f.userCalls != 0 {
+		t.Fatalf("saved without the PIN after a prompt: %+v", res)
+	}
+}
+
+func TestPinChangedMidSessionAsksAgainAndCountsAsWrong(t *testing.T) {
+	a, f := setup(t)
+	register(t, a, f)
+	unlockApp(t, a)
+	f.pin = "111111" // IT pressed Change now
+	res := a.ReportNow()
+	if res.OK || !res.NeedsPin || !strings.Contains(res.Message, "not correct") {
+		t.Fatalf("%+v", res)
+	}
+	if sv := a.Session(); sv.HasPin {
+		t.Fatalf("the stale PIN was kept: %+v", sv)
+	}
+}
+
+func TestSignupNeedsThePinAndSharesTheLockout(t *testing.T) {
+	a, f := setup(t)
+	a.CheckConnection(f.URL, "good-key")
+	if res := a.Signup(form(), ""); res.OK || res.FieldErrors["pin"] == "" || !res.NeedsPin {
+		t.Fatalf("%+v", res)
+	}
+	if res := a.Signup(form(), "12345"); res.OK || !strings.Contains(res.FieldErrors["pin"], "6 digits") {
+		t.Fatalf("%+v", res)
+	}
+	for i := 4; i >= 1; i-- {
+		res := a.Signup(form(), "000000")
+		if res.OK || !res.NeedsPin || !strings.Contains(res.FieldErrors["pin"], fmt.Sprintf("%d tries left", i)) {
+			t.Fatalf("try: %+v", res)
+		}
+	}
+	// The fifth wrong try locks every prompt, Settings included.
+	if res := a.Signup(form(), "000000"); res.OK || !strings.Contains(res.Message, "Too many wrong tries") {
+		t.Fatalf("%+v", res)
+	}
+	if res := a.Signup(form(), testPin); res.OK || !strings.Contains(res.Message, "Too many wrong tries") {
+		t.Fatalf("locked prompt accepted the right PIN: %+v", res)
+	}
+	if res := a.UnlockITSettings(testPin); res.OK || !strings.Contains(res.Message, "Too many wrong tries") {
+		t.Fatalf("%+v", res)
+	}
+	if a.State().Screen == "home" {
+		t.Fatal("registered while locked out")
+	}
+}
+
+func TestSignupWithAWrongEnrollmentKeyIsNotAWrongPin(t *testing.T) {
+	a, f := setup(t)
+	a.CheckConnection(f.URL, "bad-key")
+	res := a.Signup(form(), testPin)
+	if res.OK || res.NeedsPin || !strings.Contains(res.Message, "enrollment key is not correct") {
+		t.Fatalf("%+v", res)
+	}
+	if a.pinFailures != 0 {
+		t.Fatal("a wrong enrollment key counted as a wrong PIN try")
+	}
+}
+
+func TestActionsOfflineSayTheServerIsUnreachableWithNoKeyFallback(t *testing.T) {
+	a, f := setup(t)
+	register(t, a, f)
+	unlockApp(t, a)
+	f.Close()
+	if res := a.ReportNow(); res.OK || res.Message != offlineActionMessage {
+		t.Fatalf("%+v", res)
+	}
+	if res := a.UpdateUser(form(), ""); res.OK || res.Message != offlineActionMessage {
+		t.Fatalf("%+v", res)
+	}
+}
+
+func TestSignupOfflineSaysTheServerIsUnreachable(t *testing.T) {
+	a, f := setup(t)
+	a.CheckConnection(f.URL, "good-key")
+	f.Close()
+	if res := a.Signup(form(), testPin); res.OK || res.Message != offlineActionMessage {
+		t.Fatalf("%+v", res)
+	}
+}
+
+func TestServerRateLimitOnAnActionAsksToWait(t *testing.T) {
+	a, f := setup(t)
+	register(t, a, f)
+	unlockApp(t, a)
+	f.Server.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(429)
+		_, _ = w.Write([]byte(`{"error":"too_many_attempts","message":"Too many wrong PINs"}`))
+	})
+	if res := a.ReportNow(); res.OK || !res.NeedsPin || !strings.Contains(res.Message, "Try again in a minute") {
+		t.Fatalf("%+v", res)
+	}
+	if a.pinFailures != 0 {
+		t.Fatal("a server rate limit was counted as a wrong try")
 	}
 }
