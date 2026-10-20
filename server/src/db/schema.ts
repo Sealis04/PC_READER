@@ -48,7 +48,7 @@ export const requestType = pgEnum("request_type", ["scan_now", "send_logs", "pro
 export const requestStatus = pgEnum("request_status", ["pending", "delivered", "done", "failed"]);
 export const connectionType = pgEnum("connection_type", ["ethernet", "wifi", "other"]);
 export const logLevel = pgEnum("log_level", ["error", "warning", "info"]);
-export const unlockMethod = pgEnum("unlock_method", ["hourly_pin"]);
+export const unlockMethod = pgEnum("unlock_method", ["hourly_pin", "register", "update_details", "manual_scan"]);
 export const logCategory = pgEnum("log_category", ["scan", "sync", "signup", "update", "system"]);
 
 export const users = pgTable("users", {
@@ -280,19 +280,22 @@ export const itPinState = pgTable("it_pin_state", {
   rotatedAt: timestamp("rotated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-// Append-only: one row per Settings unlock attempt a PC checked with the server.
+// Append-only: one row per IT PIN a PC checked with the server (Settings unlock, signup, Update my
+// details, manual scan). Signup has no device yet: device_id is null and client_ip is the limiter key.
 export const settingsUnlockAttempts = pgTable(
   "settings_unlock_attempts",
   {
     ...base,
-    deviceId: uuid("device_id")
-      .notNull()
-      .references(() => devices.id, { onDelete: "cascade" }),
+    deviceId: uuid("device_id").references(() => devices.id, { onDelete: "cascade" }),
+    clientIp: text("client_ip"),
     attemptedAt: timestamp("attempted_at", { withTimezone: true }).notNull().defaultNow(),
     success: boolean("success").notNull(),
     method: unlockMethod("method").notNull().default("hourly_pin"),
   },
-  (t) => [index("settings_unlock_attempts_device_idx").on(t.deviceId, t.attemptedAt)],
+  (t) => [
+    index("settings_unlock_attempts_device_idx").on(t.deviceId, t.attemptedAt),
+    index("settings_unlock_attempts_ip_idx").on(t.clientIp, t.attemptedAt),
+  ],
 );
 
 export type Device = typeof devices.$inferSelect;

@@ -16,7 +16,7 @@ import {
   REQUEST_STATUS_LABEL,
   STATUS_LABEL,
 } from "@/lib/format";
-import { getUnlockAttempts } from "@/lib/it-pin";
+import { getUnlockAttempts, PIN_METHOD_LABEL } from "@/lib/it-pin";
 import { REQUEST_TYPES } from "@/lib/requests";
 import { getDeviceDetail, getDeviceHistory, getDeviceLogs, getLatestRequests, getNetworkHistory, LOG_LIMIT, NETWORK_LIMIT } from "@/lib/queries";
 
@@ -217,10 +217,10 @@ export default async function DevicePage({
       </section>
 
       <section>
-        <h2>Settings unlock attempts</h2>
+        <h2>IT PIN attempts</h2>
         <div className="panel pad">
           {unlocks.length === 0 ? (
-            <p className="sub">Nobody has tried to open Settings on this computer yet.</p>
+            <p className="sub">Nobody has entered the IT PIN on this computer yet.</p>
           ) : (
             <ul className="timeline">
               {unlocks.map((u) => (
@@ -228,7 +228,7 @@ export default async function DevicePage({
                   <span className="num sub">{formatDateTime(u.attemptedAt)}</span>
                   <span>
                     <span className={`pill${u.success ? "" : " warn"}`}>{u.success ? "Unlocked" : "Wrong PIN"}</span>{" "}
-                    <span className="sub">hourly IT PIN</span>
+                    <span className="sub">{PIN_METHOD_LABEL[u.method]}</span>
                   </span>
                 </li>
               ))}

@@ -4,6 +4,7 @@ import type { Db } from "@/db";
 import { devices, scans } from "@/db/schema";
 import { authenticateDevice } from "@/lib/agent/auth";
 import { deriveComponents, syncComponents } from "@/lib/components";
+import { pinErrorResponse, verifyPin } from "@/lib/it-pin";
 import { HttpError, errorResponse, jsonResponse, readJson } from "@/lib/http";
 
 // POST /api/agent/scans — stores a full scan and syncs the device's components.
@@ -26,6 +27,15 @@ export async function handleScan(req: Request, db: Db): Promise<Response> {
   }
   if (body.payload.os_type !== device.osType) {
     return errorResponse(400, "invalid_payload", `Payload os_type ${body.payload.os_type} does not match registered ${device.osType}`);
+  }
+
+  // A person pressing Report now needs the hourly IT PIN; scheduled, startup and dashboard-requested
+  // (on_demand) scans do not.
+  if (body.scan_type === "manual") {
+    const refused = body.it_pin === undefined
+      ? errorResponse(403, "wrong_pin", "Manual scans need the current IT PIN")
+      : pinErrorResponse(await verifyPin(db, device.id, body.it_pin, "manual_scan"));
+    if (refused) return refused;
   }
 
   const now = new Date();

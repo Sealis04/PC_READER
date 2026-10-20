@@ -1,5 +1,6 @@
 {
   "enrollment_key": "sample-enrollment-key",
+  "it_pin": "483920",
   "device_uuid": "0b9a8c7d-6e5f-4a3b-9c2d-1e0f9a8b7c6d",
   "os_type": "macos",
   "hostname": "AGY-MAC-0045",

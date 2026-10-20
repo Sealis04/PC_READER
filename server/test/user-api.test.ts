@@ -5,7 +5,7 @@ import { closeDb, getDb } from "@/db";
 import { assignments, users } from "@/db/schema";
 import { handleRegister } from "@/lib/agent/register";
 import { handleUserUpdate } from "@/lib/agent/user";
-import { jsonRequest, loadFixture, prepareDatabase, registerFixture, resetDatabase } from "./helpers";
+import { jsonRequest, loadFixture, prepareDatabase, registerFixture, resetDatabase, testPin } from "./helpers";
 
 beforeAll(prepareDatabase);
 beforeEach(resetDatabase);
@@ -21,7 +21,7 @@ function putUser(token: string | null, body: unknown) {
   return handleUserUpdate(new Request(req, { method: "PUT" }), getDb());
 }
 
-const baseUser = () => loadFixture<UserDetails>("user/windows-desktop.json");
+const baseUser = () => ({ ...loadFixture<UserDetails>("user/windows-desktop.json"), it_pin: testPin() });
 const allAssignments = () => getDb().select().from(assignments).orderBy(asc(assignments.startAt));
 
 describe("PUT /api/agent/user", () => {
@@ -30,7 +30,7 @@ describe("PUT /api/agent/user", () => {
     const res = await putUser(token, { ...baseUser(), department: "Budget", position: null, phone: null });
     expect(res.status).toBe(200);
     const body = (await res.json()) as UserDetails;
-    expect(validateUserRequest(body)).toBe(true);
+    expect(validateUserRequest({ ...body, it_pin: "000000" })).toBe(true); // same fields as the request, minus the PIN
     expect(body).toMatchObject({ employee_id: "EMP-0001", department: "Budget", position: null, phone: null });
 
     const [user] = await getDb().select().from(users);

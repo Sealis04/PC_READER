@@ -2,7 +2,7 @@ import { formatErrors, validateSettingsUnlockRequest, type SettingsUnlockRespons
 import type { Db } from "@/db";
 import { authenticateDevice } from "@/lib/agent/auth";
 import { HttpError, errorResponse, jsonResponse, readJson } from "@/lib/http";
-import { verifyPin } from "@/lib/it-pin";
+import { pinErrorResponse, verifyPin } from "@/lib/it-pin";
 
 // POST /api/agent/settings-unlock { pin } — the PC asks whether the typed PIN is the current IT PIN.
 // 200 { ok: true }, 403 wrong_pin, 429 too_many_attempts. Every checked attempt is logged.
@@ -21,9 +21,8 @@ export async function handleSettingsUnlock(req: Request, db: Db): Promise<Respon
     return errorResponse(400, "invalid_payload", "Request does not match settings-unlock.request schema", formatErrors(validateSettingsUnlockRequest.errors));
   }
 
-  const result = await verifyPin(db, device.id, body.pin);
-  if (result === "too_many_attempts") return errorResponse(429, "too_many_attempts", "Too many wrong PINs; try again in a minute");
-  if (result === "wrong_pin") return errorResponse(403, "wrong_pin", "That PIN is not the current IT PIN");
+  const refused = pinErrorResponse(await verifyPin(db, device.id, body.pin, "hourly_pin"));
+  if (refused) return refused;
   const response: SettingsUnlockResponse = { ok: true };
   return jsonResponse(response);
 }

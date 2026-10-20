@@ -3,6 +3,7 @@ import { and, eq, isNull } from "drizzle-orm";
 import type { Db } from "@/db";
 import { assignments, users } from "@/db/schema";
 import { authenticateDevice } from "@/lib/agent/auth";
+import { pinErrorResponse, verifyPin } from "@/lib/it-pin";
 import { HttpError, errorResponse, jsonResponse, readJson } from "@/lib/http";
 
 export const SELF_SERVICE = "self-service";
@@ -24,6 +25,10 @@ export async function handleUserUpdate(req: Request, db: Db): Promise<Response> 
   if (!validateUserRequest(body)) {
     return errorResponse(400, "invalid_payload", "Request does not match user.request schema", formatErrors(validateUserRequest.errors));
   }
+
+  // Every save needs the hourly IT PIN (the dashboard's "confirm details" prompt included).
+  const refused = pinErrorResponse(await verifyPin(db, device.id, body.it_pin, "update_details"));
+  if (refused) return refused;
 
   const now = new Date();
   const fields = { fullName: body.full_name, email: body.email, department: body.department, position: body.position, phone: body.phone };

@@ -60,6 +60,13 @@ describe("user fixtures", () => {
     });
   }
 
+  test("user.request needs the IT PIN, six digits", () => {
+    const u = load("user/windows-desktop.json");
+    for (const bad of [undefined, "12345", "abcdef", 483920]) {
+      expect(validateUserRequest({ ...u, it_pin: bad })).toBe(false);
+    }
+  });
+
   test("user.request needs the six detail fields and no policy flag", () => {
     const u = load("user/windows-desktop.json");
     expect(validateUserRequest({ ...u, policy_acknowledged: true })).toBe(false);
@@ -112,6 +119,20 @@ describe("schema rules", () => {
     const p = base();
     p.network.adapters[0].mac_address = "d0-8e-79-00-00-01";
     expect(validateScanPayload(p)).toBe(false);
+  });
+
+  test("register.request needs a six-digit IT PIN", () => {
+    const r = load("register/windows-desktop.json");
+    for (const bad of [undefined, "", "12345", "1234567", "abcdef"]) {
+      expect(validateRegisterRequest({ ...r, it_pin: bad })).toBe(false);
+    }
+  });
+
+  test("scans.request takes an optional six-digit it_pin", () => {
+    const body = { scan_uuid: crypto.randomUUID(), scan_type: "manual", collected_at: "2026-10-20T07:00:00Z", payload: base() };
+    expect(validateScansRequest(body)).toBe(true);
+    expect(validateScansRequest({ ...body, it_pin: "483920" })).toBe(true);
+    expect(validateScansRequest({ ...body, it_pin: "48392" })).toBe(false);
   });
 
   test("policy must be acknowledged to register", () => {

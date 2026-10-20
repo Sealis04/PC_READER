@@ -46,7 +46,7 @@ ajv.addSchema(networkSnapshotSchema);
 export const validateScanPayload = ajv.compile<ScanPayload>(scanPayloadSchema);
 export const validateRegisterRequest = ajv.compile<RegisterRequest>(registerRequestSchema);
 export const validateRegisterResponse = ajv.compile<RegisterResponse>(registerResponseSchema);
-export const validateUserRequest = ajv.compile<UserDetails>(userRequestSchema);
+export const validateUserRequest = ajv.compile<UserRequest>(userRequestSchema);
 export const validateScansRequest = ajv.compile<ScansRequest>(scansRequestSchema);
 export const validateScansResponse = ajv.compile<ScansResponse>(scansResponseSchema);
 
@@ -150,8 +150,13 @@ export interface UserDetails {
   phone: string | null;
 }
 
+export interface UserRequest extends UserDetails {
+  it_pin: string;
+}
+
 export interface RegisterRequest {
   enrollment_key: string;
+  it_pin: string;
   device_uuid: string;
   os_type: OsType;
   hostname: string;
@@ -177,6 +182,7 @@ export interface ScansRequest {
   scan_uuid: string;
   scan_type: ScanType;
   collected_at: string;
+  it_pin?: string;
   payload: ScanPayload;
 }
 
