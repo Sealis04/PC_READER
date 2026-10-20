@@ -90,44 +90,71 @@ function safeEqual(a: string, b: string): boolean {
   return x.length === y.length && timingSafeEqual(x, y);
 }
 
-export type PinMethod = "hourly_pin" | "register" | "update_details" | "manual_scan";
+export type PinMethod = "hourly_pin" | "register" | "update_details" | "manual_scan" | "confirm_details";
 
 export const PIN_METHOD_LABEL: Record<PinMethod, string> = {
   hourly_pin: "Settings",
   register: "Signup",
   update_details: "Update my details",
   manual_scan: "Report now",
+  confirm_details: "Confirm details (IT request)",
 };
 
 // Who is trying: a registered device (all its methods share one limit), or, at signup when there is
 // no device yet, a client IP.
 export type PinSubject = { deviceId: string } | { deviceId: null; clientIp: string };
 
-// Checks a typed PIN and records the attempt. A subject with MAX_WRONG_PER_WINDOW wrong tries in the
-// last minute is refused (and not recorded again) until the oldest of them ages out.
-export async function verifyPin(db: Db, subject: PinSubject | string, pin: string, method: PinMethod = "hourly_pin", now = new Date()): Promise<VerifyResult> {
-  const who: PinSubject = typeof subject === "string" ? { deviceId: subject } : subject;
+// Whether the subject has MAX_WRONG_PER_WINDOW wrong tries in the last minute.
+export async function tooManyWrong(db: Db, subject: PinSubject, now = new Date()): Promise<boolean> {
   const since = new Date(now.getTime() - RATE_WINDOW_MS);
   const scope =
-    who.deviceId !== null
-      ? eq(settingsUnlockAttempts.deviceId, who.deviceId)
-      : and(isNull(settingsUnlockAttempts.deviceId), eq(settingsUnlockAttempts.clientIp, who.clientIp));
+    subject.deviceId !== null
+      ? eq(settingsUnlockAttempts.deviceId, subject.deviceId)
+      : and(isNull(settingsUnlockAttempts.deviceId), eq(settingsUnlockAttempts.clientIp, subject.clientIp));
   const [{ wrong }] = await db
     .select({ wrong: count() })
     .from(settingsUnlockAttempts)
     .where(and(scope, eq(settingsUnlockAttempts.success, false), gte(settingsUnlockAttempts.attemptedAt, since)));
-  if (wrong >= MAX_WRONG_PER_WINDOW) return "too_many_attempts";
+  return wrong >= MAX_WRONG_PER_WINDOW;
+}
 
-  const s = await loadState(db);
-  const success = safeEqual(derivePin(s.secret, s.generation, now), pin);
+export async function recordAttempt(db: Db, subject: PinSubject, success: boolean, method: PinMethod, now = new Date()): Promise<void> {
   await db.insert(settingsUnlockAttempts).values({
-    deviceId: who.deviceId,
-    clientIp: who.deviceId === null ? who.clientIp : null,
+    deviceId: subject.deviceId,
+    clientIp: subject.deviceId === null ? subject.clientIp : null,
     attemptedAt: now,
     success,
     method,
   });
+}
+
+// Checks a typed PIN and records the attempt. A subject with MAX_WRONG_PER_WINDOW wrong tries in the
+// last minute is refused (and not recorded again) until the oldest of them ages out.
+export async function verifyPin(db: Db, subject: PinSubject | string, pin: string, method: PinMethod = "hourly_pin", now = new Date()): Promise<VerifyResult> {
+  const who: PinSubject = typeof subject === "string" ? { deviceId: subject } : subject;
+  if (await tooManyWrong(db, who, now)) return "too_many_attempts";
+
+  const s = await loadState(db);
+  const success = safeEqual(derivePin(s.secret, s.generation, now), pin);
+  await recordAttempt(db, who, success, method, now);
   return success ? "ok" : "wrong_pin";
+}
+
+// IT's approval for one "Ask user to confirm details" request: HMAC(secret, request id), sent to that
+// PC with the request over the events stream. With it the user saves their details once without the
+// PIN (see lib/agent/user.ts). Nothing is stored; the request's own state makes it single-use.
+export const CONFIRM_APPROVAL_TTL_MS = 24 * 60 * 60 * 1000;
+
+export function deriveApproval(secret: string, requestId: string): string {
+  return createHmac("sha256", secret).update(`confirm-details:${requestId}`).digest("base64url");
+}
+
+export async function approvalFor(db: Db, requestId: string): Promise<string> {
+  return deriveApproval((await loadState(db)).secret, requestId);
+}
+
+export async function approvalMatches(db: Db, requestId: string, approval: string): Promise<boolean> {
+  return safeEqual(await approvalFor(db, requestId), approval);
 }
 
 // The first address in X-Forwarded-For (the reverse proxy's view of the caller); "unknown" without one.

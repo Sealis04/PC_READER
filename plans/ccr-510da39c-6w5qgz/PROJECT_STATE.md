@@ -7,6 +7,7 @@
 - PR #8 (M4) waiting for the user's review and dashboard test
 
 ## Queued
+- M6 custom fields with secret fields (`plans/m6-custom-fields/plan.md`) — start Builder 1 after M5 round 4 is merged
 - Planner checks builder-1's PR and CI; user reviews, merges and tests
 - Merge `ccr-510da39c-6w5qgz` (M2–M4) into `main`
 - Later milestones: staff login and roles, status history, tagging, PM reports, installer, HTTPS

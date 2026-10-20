@@ -1,0 +1,12 @@
+{
+  "full_name": "Juan Dela Cruz",
+  "employee_id": "EMP-0001",
+  "email": "juan.delacruz@example.gov.ph",
+  "department": "Finance",
+  "position": "Accountant II",
+  "phone": "+63 917 000 0001",
+  "confirm": {
+    "request_id": "0d1e2f30-4a5b-4c6d-8e7f-8091a2b3c4d5",
+    "approval": "q3Vb0xZK9fT2mN7pR4sW1yC8eH5jL6uA0dG3iO9kX2w"
+  }
+}

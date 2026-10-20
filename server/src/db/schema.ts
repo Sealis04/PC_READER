@@ -48,7 +48,7 @@ export const requestType = pgEnum("request_type", ["scan_now", "send_logs", "pro
 export const requestStatus = pgEnum("request_status", ["pending", "delivered", "done", "failed"]);
 export const connectionType = pgEnum("connection_type", ["ethernet", "wifi", "other"]);
 export const logLevel = pgEnum("log_level", ["error", "warning", "info"]);
-export const unlockMethod = pgEnum("unlock_method", ["hourly_pin", "register", "update_details", "manual_scan"]);
+export const unlockMethod = pgEnum("unlock_method", ["hourly_pin", "register", "update_details", "manual_scan", "confirm_details"]);
 export const logCategory = pgEnum("log_category", ["scan", "sync", "signup", "update", "system"]);
 
 export const users = pgTable("users", {

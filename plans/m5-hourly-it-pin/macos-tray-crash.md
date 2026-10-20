@@ -129,13 +129,13 @@ lr      0x18a5178d8
 sp      0x16e0758d0
 pc      0x18a4dc5e8
 fault   0x18a4dc5e8
-KertIA@admins-MacBook-Pro Applications % cls
+user@mac Applications % cls
 zsh: command not found: cls
-KertIA@admins-MacBook-Pro Applications % clr
+user@mac Applications % clr
 zsh: command not found: clr
-KertIA@admins-MacBook-Pro Applications % clear
+user@mac Applications % clear
 
-KertIA@admins-MacBook-Pro Applications % "/Users/KertIA/DOwnloads/PC_READER.app/Contents/MacOS/pcreader-desktop"
+user@mac Applications % "~/Downloads/PC_READER.app/Contents/MacOS/pcreader-desktop"
 *** Terminating app due to uncaught exception 'NSInternalInconsistencyException', reason: 'NSWindow should only be instantiated on the main thread!'
 *** First throw call stack:
 (
@@ -608,7 +608,7 @@ lr      0x18a5178d8
 sp      0x1717f98d0
 pc      0x18a4dc5e8
 fault   0x18a4dc5e8
-KertIA@admins-MacBook-Pro Applications % >....                                                                          
+user@mac Applications % >....                                                                          
 r5      0x1717f9980
 r6      0x6e
 r7      0xfffff0003ffff800
@@ -637,7 +637,7 @@ r29     0x1717f98f0
 lr      0x18a5178d8
 sp      0x1717f98d0
 pc      0x18a4dc5e8
-fault   0x18a4dc5e8/Users/KertIA/Downloads/PC_READER.app
+fault   0x18a4dc5e8~/Downloads/PC_READER.app
 ```
 
 ---

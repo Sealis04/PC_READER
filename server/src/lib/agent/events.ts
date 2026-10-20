@@ -4,7 +4,9 @@ import type { Db } from "@/db";
 import { deviceRequests, devices } from "@/db/schema";
 import { authenticateDevice } from "@/lib/agent/auth";
 import { errorResponse } from "@/lib/http";
+import { approvalFor } from "@/lib/it-pin";
 import { registerConnection, subscribe } from "@/lib/notifier";
+import { expireStalePrompts } from "@/lib/requests";
 
 export const HEARTBEAT_SECONDS = 25;
 
@@ -70,6 +72,7 @@ export async function handleEvents(req: Request, db: Db): Promise<Response> {
       const flush = (includeDelivered: boolean) => {
         chain = chain.then(async () => {
           if (closed) return;
+          await expireStalePrompts(db, device.id);
           const statuses = includeDelivered ? (["pending", "delivered"] as const) : (["pending"] as const);
           const rows = await db
             .select()
@@ -86,7 +89,10 @@ export async function handleEvents(req: Request, db: Db): Promise<Response> {
               .where(and(inArray(deviceRequests.id, pendingIds), eq(deviceRequests.status, "pending")));
           }
           for (const r of rows) {
-            send(frame({ event: "request", data: { id: r.id, type: r.type, created_at: r.createdAt.toISOString() } }));
+            const data = { id: r.id, type: r.type, created_at: r.createdAt.toISOString() };
+            // "Confirm details" carries IT's one-time approval, so the user can save without the PIN.
+            const approval = r.type === "prompt_details_update" ? { approval: await approvalFor(db, r.id) } : {};
+            send(frame({ event: "request", data: { ...data, ...approval } }));
           }
         }).catch(() => {
           // a failed read is retried by the next notification or reconnect

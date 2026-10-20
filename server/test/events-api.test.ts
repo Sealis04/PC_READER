@@ -18,8 +18,9 @@ import { handleLogs } from "@/lib/agent/logs";
 import { handleNetwork } from "@/lib/agent/network";
 import { handleRequestComplete } from "@/lib/agent/complete";
 import { handleListRequests, handleQueueRequest } from "@/lib/dashboard-requests";
-import { queueRequest } from "@/lib/requests";
-import { jsonRequest, loadFixture, payloadFixture, prepareDatabase, registerFixture, resetDatabase, scanBody } from "./helpers";
+import { deriveApproval } from "@/lib/it-pin";
+import { PROMPT_EXPIRED_MESSAGE, queueRequest } from "@/lib/requests";
+import { jsonRequest, loadFixture, payloadFixture, prepareDatabase, registerFixture, resetDatabase, scanBody, TEST_PIN_SECRET } from "./helpers";
 
 beforeAll(prepareDatabase);
 beforeEach(resetDatabase);
@@ -137,6 +138,45 @@ describe("GET /api/agent/events", () => {
     expect(msg.event).toBe("request");
     expect(msg.data).toMatchObject({ id: queued!.request.id, type: "scan_now" });
     expect((await getDb().select().from(deviceRequests))[0].status).toBe("delivered");
+    await s.close();
+  });
+
+  test("a confirm-details request carries IT's approval code; other requests do not", async () => {
+    const { token, deviceId } = await registerDevice();
+    const prompt = await queueRequest(getDb(), deviceId, "prompt_details_update");
+    await queueRequest(getDb(), deviceId, "scan_now");
+    const s = await Stream.open(token);
+    await s.next(); // hello
+    const first = await s.next();
+    const second = await s.next();
+    expect(validateEventsMessage(first)).toBe(true);
+    expect(first.data).toEqual({
+      id: prompt!.request.id,
+      type: "prompt_details_update",
+      created_at: prompt!.request.createdAt.toISOString(),
+      approval: deriveApproval(TEST_PIN_SECRET, prompt!.request.id),
+    });
+    expect(second.data).not.toHaveProperty("approval");
+    await s.close();
+  });
+
+  test("a confirm-details request left for 24 hours expires and is not sent; a new one can be queued", async () => {
+    const { token, deviceId } = await registerDevice();
+    const old = await queueRequest(getDb(), deviceId, "prompt_details_update");
+    await getDb()
+      .update(deviceRequests)
+      .set({ createdAt: new Date(Date.now() - 25 * 60 * 60 * 1000) })
+      .where(eq(deviceRequests.id, old!.request.id));
+    const s = await Stream.open(token);
+    await s.next(); // hello
+    await settle();
+    const [row] = await getDb().select().from(deviceRequests).where(eq(deviceRequests.id, old!.request.id));
+    expect(row.status).toBe("failed");
+    expect(row.message).toBe(PROMPT_EXPIRED_MESSAGE);
+    const again = await queueRequest(getDb(), deviceId, "prompt_details_update");
+    expect(again!.created).toBe(true);
+    const msg = await s.next();
+    expect(msg.data).toMatchObject({ id: again!.request.id, type: "prompt_details_update" });
     await s.close();
   });
 

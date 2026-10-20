@@ -60,9 +60,10 @@ type Runner struct {
 	Tune func(*events.Client)
 
 	// OnStatus is called on every change of status. OnPrompt is called when IT asked the user to
-	// confirm their details (open the window on "Update my details").
+	// confirm their details (open the window on "Update my details"); the request carries IT's
+	// approval code, with which the user can save once without the PIN.
 	OnStatus func(Status)
-	OnPrompt func()
+	OnPrompt func(req payload.PendingRequest)
 
 	mu       sync.Mutex
 	status   Status
@@ -213,11 +214,13 @@ func (r *Runner) handle(req payload.PendingRequest) {
 	case payload.RequestSendLogs:
 		res = r.sendLogs(ctx)
 	case payload.RequestPromptDetailsUpdate:
+		// The user's save closes this request on the server (or it expires after 24 hours), so it is
+		// not completed here: its approval code stays valid until then.
 		r.log(locallog.Info, locallog.Update, "IT asked for the details to be confirmed")
 		if r.OnPrompt != nil {
-			r.OnPrompt()
+			r.OnPrompt(req)
 		}
-		res = payload.RequestComplete{Result: "done"}
+		return
 	default:
 		res = payload.RequestComplete{Result: "failed", Message: "This version does not know that request"}
 	}

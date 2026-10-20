@@ -9,6 +9,8 @@ export type ErrorCode =
   | "invalid_enrollment_key"
   | "enrollment_disabled"
   | "wrong_pin"
+  | "pin_required"
+  | "approval_invalid"
   | "too_many_attempts"
   | "payload_too_large"
   | "unsupported_media_type"

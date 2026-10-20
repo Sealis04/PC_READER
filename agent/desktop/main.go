@@ -27,6 +27,7 @@ import (
 	"github.com/sealis04/pc_reader/agent/internal/background"
 	"github.com/sealis04/pc_reader/agent/internal/bound"
 	"github.com/sealis04/pc_reader/agent/internal/locallog"
+	"github.com/sealis04/pc_reader/agent/internal/payload"
 )
 
 //go:embed all:frontend/dist
@@ -127,8 +128,8 @@ func (s *shell) startRunner() {
 			s.app.SetConnection(string(st), st.Label())
 			s.emit("connection")
 		},
-		OnPrompt: func() {
-			s.app.RaisePrompt()
+		OnPrompt: func(req payload.PendingRequest) {
+			s.app.RaisePrompt(req.ID, req.Approval)
 			s.showWindow()
 			s.emit("prompt-details")
 		},

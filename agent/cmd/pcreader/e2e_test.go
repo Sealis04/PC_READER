@@ -199,10 +199,15 @@ func TestEndToEndListen(t *testing.T) {
 	for _, typ := range []string{"scan_now", "send_logs", "prompt_details_update"} {
 		queueRequest(t, server, deviceID, typ)
 	}
-	waitUntil("all three requests to finish", func() bool {
+	// scan_now and send_logs finish; "confirm details" stays delivered until the user saves (with IT's
+	// approval code or the PIN), so the agent shows it but does not close it.
+	waitUntil("scan_now and send_logs to finish and the prompt to be shown", func() bool {
 		done := 0
 		for _, r := range listRequests(t, server, deviceID) {
 			if r.Status == "done" {
+				if r.Type == "prompt_details_update" {
+					t.Fatalf("the agent closed the confirm-details request itself")
+				}
 				done++
 				if r.Type == "scan_now" && r.ScanID == nil {
 					t.Errorf("scan_now finished without a scan_id")
@@ -212,11 +217,8 @@ func TestEndToEndListen(t *testing.T) {
 				t.Fatalf("request %s failed\nstdout: %s\nstderr: %s", r.Type, out.String(), errOut.String())
 			}
 		}
-		return done == 3
+		return done == 2 && strings.Contains(out.String(), "IT asked you to confirm your details")
 	})
-	if !strings.Contains(out.String(), "IT asked you to confirm your details") {
-		t.Errorf("prompt not shown: %s", out.String())
-	}
 
 	cancel()
 	select {

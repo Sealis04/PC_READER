@@ -148,10 +148,18 @@ type UserDetails struct {
 	Phone      *string `json:"phone"`
 }
 
-// UserRequest is the body of PUT /api/agent/user: the details plus the current hourly IT PIN.
+// UserRequest is the body of PUT /api/agent/user: the details plus IT's approval, either the current
+// hourly IT PIN or the approval code of IT's "confirm details" request.
 type UserRequest struct {
 	UserDetails
-	ITPIN string `json:"it_pin"`
+	ITPIN   string           `json:"it_pin,omitempty"`
+	Confirm *ConfirmApproval `json:"confirm,omitempty"`
+}
+
+// ConfirmApproval answers IT's "confirm details" request: one save, same employee ID, within 24 hours.
+type ConfirmApproval struct {
+	RequestID string `json:"request_id"`
+	Approval  string `json:"approval"`
 }
 
 // User is the registration's user: their details plus the data-use notice acceptance.
@@ -237,6 +245,9 @@ type PendingRequest struct {
 	ID        string `json:"id"`
 	Type      string `json:"type"`
 	CreatedAt string `json:"created_at"`
+	// Approval comes with prompt_details_update only: IT's one-time code for saving the details
+	// without the PIN (sent back in UserRequest.Confirm).
+	Approval string `json:"approval,omitempty"`
 }
 
 // RequestComplete mirrors request-complete.request; the optional fields are omitted when empty.

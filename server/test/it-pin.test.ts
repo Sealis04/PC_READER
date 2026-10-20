@@ -1,14 +1,14 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { validateSettingsUnlockResponse, type RegisterResponse } from "@pcreader/contracts";
-import { asc, sql } from "drizzle-orm";
+import { asc, eq, sql } from "drizzle-orm";
 import { closeDb, getDb } from "@/db";
-import { settingsUnlockAttempts } from "@/db/schema";
+import { assignments, deviceRequests, settingsUnlockAttempts } from "@/db/schema";
 import { handleRegister } from "@/lib/agent/register";
 import { handleSettingsUnlock } from "@/lib/agent/settings-unlock";
-import { currentPin, expiresAt, MAX_WRONG_PER_WINDOW, rotateNow, verifyPin } from "@/lib/it-pin";
+import { currentPin, deriveApproval, expiresAt, MAX_WRONG_PER_WINDOW, rotateNow, verifyPin } from "@/lib/it-pin";
 import { handleScan } from "@/lib/agent/scans";
 import { handleUserUpdate } from "@/lib/agent/user";
-import { jsonRequest, loadFixture, payloadFixture, prepareDatabase, registerFixture, resetDatabase, scanBody, testPin } from "./helpers";
+import { jsonRequest, loadFixture, payloadFixture, prepareDatabase, registerFixture, resetDatabase, scanBody, testPin, TEST_PIN_SECRET } from "./helpers";
 
 beforeAll(prepareDatabase);
 beforeEach(resetDatabase);
@@ -231,7 +231,7 @@ describe("PUT /api/agent/user needs the IT PIN", () => {
     expect((await getDb().execute(sql`select full_name from users`))[0]).toMatchObject({ full_name: "Juan Dela Cruz" });
   });
 
-  test("400 without a PIN (also while the dashboard asked to confirm the details)", async () => {
+  test("400 without a PIN or an approval (also while the dashboard asked to confirm the details)", async () => {
     const { token, deviceId } = await registerDevice();
     await getDb().execute(sql`insert into device_requests (device_id, type, status) values (${deviceId}, 'prompt_details_update', 'delivered')`);
     const without = userBody() as Record<string, unknown>;
@@ -240,12 +240,109 @@ describe("PUT /api/agent/user needs the IT PIN", () => {
     expect((await putUser(token, userBody(wrongPin()))).status).toBe(403);
   });
 
+  test("a save with the PIN also closes an open confirm-details request", async () => {
+    const { token, deviceId } = await registerDevice();
+    const requestId = await promptRequest(deviceId);
+    expect((await putUser(token, userBody())).status).toBe(200);
+    expect(await requestStatus(requestId)).toBe("done");
+  });
+
   test("429 after five wrong PINs on one device, shared with Settings", async () => {
     const { token } = await registerDevice();
     for (let i = 0; i < 3; i++) expect((await unlock(token, { pin: wrongPin() })).status).toBe(403);
     for (let i = 0; i < 2; i++) expect((await putUser(token, userBody(wrongPin()))).status).toBe(403);
     expect((await putUser(token, userBody())).status).toBe(429);
     expect((await unlock(token, { pin: testPin() })).status).toBe(429);
+  });
+});
+
+// IT pressed "Ask user to confirm details": the request carries an approval code, and the user saves once
+// with it instead of the PIN (same employee ID, within 24 hours).
+async function promptRequest(deviceId: string, createdAt = new Date()): Promise<string> {
+  const [row] = await getDb()
+    .insert(deviceRequests)
+    .values({ deviceId, type: "prompt_details_update", status: "delivered", createdAt, deliveredAt: createdAt })
+    .returning({ id: deviceRequests.id });
+  return row.id;
+}
+
+async function requestStatus(id: string): Promise<string> {
+  const [row] = await getDb().select({ status: deviceRequests.status }).from(deviceRequests).where(eq(deviceRequests.id, id));
+  return row.status;
+}
+
+const confirmBody = (requestId: string, overrides: Record<string, unknown> = {}) => {
+  const body = { ...userBody(), confirm: { request_id: requestId, approval: deriveApproval(TEST_PIN_SECRET, requestId) }, ...overrides };
+  delete (body as Record<string, unknown>).it_pin;
+  return body;
+};
+
+describe("PUT /api/agent/user with IT's confirm-details approval", () => {
+  test("saves once without the PIN, closes the request and logs it", async () => {
+    const { token, deviceId } = await registerDevice();
+    const requestId = await promptRequest(deviceId);
+    const res = await putUser(token, confirmBody(requestId, { department: "Budget" }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ employee_id: "EMP-0001", department: "Budget" });
+    expect(await requestStatus(requestId)).toBe("done");
+    const rows = await getDb().select().from(settingsUnlockAttempts).where(sql`method = 'confirm_details'`);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ deviceId, success: true });
+
+    const again = await putUser(token, confirmBody(requestId, { department: "Payroll" }));
+    expect(again.status).toBe(403);
+    expect(await again.json()).toMatchObject({ error: "approval_invalid" });
+    expect((await getDb().execute(sql`select department from users`))[0]).toMatchObject({ department: "Budget" });
+  });
+
+  test("refuses a different employee ID (that still needs the PIN) and keeps the request open", async () => {
+    const { token, deviceId } = await registerDevice();
+    const requestId = await promptRequest(deviceId);
+    const res = await putUser(token, confirmBody(requestId, { employee_id: "EMP-0002", full_name: "Maria Santos" }));
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ error: "pin_required" });
+    expect(await requestStatus(requestId)).toBe("delivered");
+    expect(await getDb().select().from(assignments)).toHaveLength(1);
+  });
+
+  test("refuses a wrong code, another device's request, or a request older than 24 hours", async () => {
+    const { token, deviceId } = await registerDevice();
+    const requestId = await promptRequest(deviceId);
+    const forged = confirmBody(requestId);
+    forged.confirm = { request_id: requestId, approval: deriveApproval("not-the-secret", requestId) };
+    expect((await putUser(token, forged)).status).toBe(403);
+
+    // One open prompt per device: close each before queueing the next.
+    await getDb().update(deviceRequests).set({ status: "failed" }).where(eq(deviceRequests.id, requestId));
+    const old = await promptRequest(deviceId, new Date(Date.now() - 25 * 60 * 60 * 1000));
+    const stale = await putUser(token, confirmBody(old));
+    expect(stale.status).toBe(403);
+    expect(await stale.json()).toMatchObject({ error: "approval_invalid" });
+    await getDb().update(deviceRequests).set({ status: "failed" }).where(eq(deviceRequests.id, old));
+
+    const other = await handleRegister(
+      jsonRequest("/api/agent/register", { ...registerFixture("windows-desktop"), device_uuid: "5b8e7c1a-2f4d-4e6b-9a0c-1d2e3f4a5b6c" }),
+      getDb(),
+    );
+    const otherToken = ((await other.json()) as RegisterResponse).device_token;
+    const fresh = await promptRequest(deviceId);
+    expect((await putUser(otherToken, confirmBody(fresh))).status).toBe(403);
+    expect(await requestStatus(fresh)).toBe("delivered");
+  });
+
+  test("a scan_now request's id is no approval", async () => {
+    const { token, deviceId } = await registerDevice();
+    const [scan] = await getDb().insert(deviceRequests).values({ deviceId, type: "scan_now", status: "delivered" }).returning({ id: deviceRequests.id });
+    expect((await putUser(token, confirmBody(scan.id))).status).toBe(403);
+  });
+
+  test("wrong approvals count toward the per-device limit", async () => {
+    const { token, deviceId } = await registerDevice();
+    const requestId = await promptRequest(deviceId);
+    const forged = confirmBody(requestId);
+    forged.confirm = { request_id: requestId, approval: deriveApproval("not-the-secret", requestId) };
+    for (let i = 0; i < MAX_WRONG_PER_WINDOW; i++) expect((await putUser(token, forged)).status).toBe(403);
+    expect((await putUser(token, confirmBody(requestId))).status).toBe(429);
   });
 });
 
