@@ -235,7 +235,7 @@ func (r *Runner) scanNow(ctx context.Context) payload.RequestComplete {
 	r.work.Lock()
 	defer r.work.Unlock()
 	r.log(locallog.Info, locallog.Scan, "IT asked for a scan")
-	scanID, _, _, err := r.Svc.Report(ctx, "on_demand")
+	scanID, _, _, err := r.Svc.Report(ctx, "on_demand", "")
 	if err != nil {
 		return payload.RequestComplete{Result: "failed", Message: "The scan could not be completed"}
 	}

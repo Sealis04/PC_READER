@@ -1,9 +1,11 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -24,6 +26,8 @@ type fakeServer struct {
 	calls []string
 	// reject makes /scans and /user answer 401.
 	reject bool
+	// pins and scanTypes hold the it_pin and scan_type of the last request to each path.
+	pins, scanTypes map[string]string
 	// registerStatus overrides the register reply when non-zero.
 	registerStatus int
 }
@@ -32,8 +36,19 @@ func newServer(t *testing.T) *fakeServer {
 	t.Helper()
 	f := &fakeServer{}
 	f.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var sent struct {
+			PIN      string `json:"it_pin"`
+			ScanType string `json:"scan_type"`
+		}
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &sent)
+		r.Body = io.NopCloser(bytes.NewReader(body))
 		f.mu.Lock()
 		f.calls = append(f.calls, r.Method+" "+r.URL.Path)
+		if f.pins == nil {
+			f.pins, f.scanTypes = map[string]string{}, map[string]string{}
+		}
+		f.pins[r.URL.Path], f.scanTypes[r.URL.Path] = sent.PIN, sent.ScanType
 		f.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		switch {
@@ -55,7 +70,7 @@ func newServer(t *testing.T) *fakeServer {
 			_, _ = w.Write([]byte(`{"scan_id":"scan-1"}`))
 		case r.URL.Path == "/api/agent/user":
 			var u payload.UserDetails
-			_ = json.NewDecoder(r.Body).Decode(&u)
+			_ = json.Unmarshal(body, &u)
 			_ = json.NewEncoder(w).Encode(u)
 		default:
 			w.WriteHeader(404)
@@ -155,7 +170,7 @@ func TestReportUpdatesLastReport(t *testing.T) {
 	if _, err := s.Register(context.Background(), RegisterInput{ServerURL: srv.URL, Key: "k", User: user()}); err != nil {
 		t.Fatal(err)
 	}
-	id, dup, sc, err := s.Report(context.Background(), "manual")
+	id, dup, sc, err := s.Report(context.Background(), "manual", "123456")
 	if err != nil || dup || id != "scan-1" || sc == nil {
 		t.Fatalf("got %q %v %v", id, dup, err)
 	}
@@ -167,20 +182,20 @@ func TestReportUpdatesLastReport(t *testing.T) {
 
 func TestReportBeforeRegisterAndUnauthorized(t *testing.T) {
 	srv, s := newServer(t), testService(t)
-	if _, _, _, err := s.Report(context.Background(), "manual"); !errors.Is(err, ErrNotRegistered) {
+	if _, _, _, err := s.Report(context.Background(), "manual", "123456"); !errors.Is(err, ErrNotRegistered) {
 		t.Fatalf("err %v", err)
 	}
-	if _, err := s.UpdateUser(context.Background(), user()); !errors.Is(err, ErrNotRegistered) {
+	if _, err := s.UpdateUser(context.Background(), user(), "123456"); !errors.Is(err, ErrNotRegistered) {
 		t.Fatalf("err %v", err)
 	}
 	if _, err := s.Register(context.Background(), RegisterInput{ServerURL: srv.URL, Key: "k", User: user()}); err != nil {
 		t.Fatal(err)
 	}
 	srv.reject = true
-	if _, _, _, err := s.Report(context.Background(), "manual"); !errors.Is(err, api.ErrUnauthorized) {
+	if _, _, _, err := s.Report(context.Background(), "manual", "123456"); !errors.Is(err, api.ErrUnauthorized) {
 		t.Fatalf("report err %v", err)
 	}
-	if _, err := s.UpdateUser(context.Background(), user()); !errors.Is(err, api.ErrUnauthorized) {
+	if _, err := s.UpdateUser(context.Background(), user(), "123456"); !errors.Is(err, api.ErrUnauthorized) {
 		t.Fatalf("update err %v", err)
 	}
 	if st, _ := s.Status(); st.LastReportAt != "" {
@@ -195,7 +210,7 @@ func TestUpdateUserSavesStoredDetails(t *testing.T) {
 	}
 	u := user()
 	u.Department = " Budget "
-	got, err := s.UpdateUser(context.Background(), u)
+	got, err := s.UpdateUser(context.Background(), u, "123456")
 	if err != nil || got.Department != "Budget" {
 		t.Fatalf("got %+v %v", got, err)
 	}
@@ -233,5 +248,28 @@ func TestCheckConnection(t *testing.T) {
 	srv.Close()
 	if _, err := s.CheckConnection(context.Background(), srv.URL); err == nil || !strings.Contains(err.Error(), "cannot reach") {
 		t.Fatalf("err %v", err)
+	}
+}
+
+func TestPinGoesOutWithRegisterManualScanAndUserUpdateOnly(t *testing.T) {
+	srv, s := newServer(t), testService(t)
+	ctx := context.Background()
+	if _, err := s.Register(ctx, RegisterInput{ServerURL: srv.URL, Key: "k", PIN: " 482913 ", User: user(), UploadFirstScan: true}); err != nil {
+		t.Fatal(err)
+	}
+	if srv.pins["/api/agent/register"] != "482913" || srv.pins["/api/agent/scans"] != "482913" || srv.scanTypes["/api/agent/scans"] != "manual" {
+		t.Fatalf("register/first scan: pins %v types %v", srv.pins, srv.scanTypes)
+	}
+	if _, _, _, err := s.Report(ctx, "on_demand", ""); err != nil {
+		t.Fatal(err)
+	}
+	if srv.pins["/api/agent/scans"] != "" || srv.scanTypes["/api/agent/scans"] != "on_demand" {
+		t.Fatalf("on_demand scan carried a PIN: %v", srv.pins)
+	}
+	if _, _, _, err := s.Report(ctx, "manual", "111222"); err != nil || srv.pins["/api/agent/scans"] != "111222" {
+		t.Fatalf("manual scan: %v pins %v", err, srv.pins)
+	}
+	if _, err := s.UpdateUser(ctx, user(), "333444"); err != nil || srv.pins["/api/agent/user"] != "333444" {
+		t.Fatalf("update: %v pins %v", err, srv.pins)
 	}
 }

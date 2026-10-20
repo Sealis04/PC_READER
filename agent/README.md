@@ -35,14 +35,20 @@ Unzip `pcreader-desktop-macos.zip` and drag `PC_READER.app` into `/Applications`
 ### First-time setup (IT)
 
 **First-time setup (IT):**
-1. Open the app. The first screen is *IT setup*: enter the server address (e.g. `http://192.168.1.10:3000`), the enrollment key and an **IT PIN** (4–8 digits, entered twice), then *Check connection and continue*. The check only confirms the server answers; a wrong key is reported when the user signs up. The key is kept in memory only; of the PIN only a salted PBKDF2-SHA256 hash (600,000 iterations) is saved in `config.json`.
-   IT setup shows whenever no PIN is stored, including on a computer registered with the CLI: there it asks only for the server address (prefilled) and the PIN, checks the connection, saves, and the computer stays registered.
-2. The user fills in the signup form (required: full name, employee ID, department; optional: email, position, phone), ticks the data-use notice and presses *Sign up*. The app scans the computer, registers it and uploads the first scan; the device then appears in the dashboard with that user.
+1. Open the app. The first screen is *IT setup*: enter the server address (e.g. `http://192.168.1.10:3000`) and the enrollment key, then *Check connection and continue*. There is no PIN to choose. The check only confirms the server answers; a wrong key is reported when the user signs up. The key is kept in memory only; once registration works, a salted PBKDF2-SHA256 hash of it (600,000 iterations) is saved in `config.json` as `enrollment_key_hash` (see the offline fallback below).
+   IT setup shows on a computer that is not registered yet, and again after *Register this computer again*. A computer that is already registered (also one registered with the CLI, or by an older app version) opens straight to My computer.
+2. The user fills in the signup form (required: full name, employee ID, department; optional: email, position, phone), ticks the data-use notice, **IT types the current IT PIN** (the 6 digits on the dashboard's IT PIN page) and presses *Sign up*. The app scans the computer, registers it and uploads the first scan; the device then appears in the dashboard with that user.
 3. From then on the app opens to **My computer**: a summary (computer name, model, serial, OS, processor, memory, drives with free space, IP address, assigned user, last report time), an expandable *Full details* view of the whole scan, **Report now**, and **Update my details**.
 
-**Update my details** saves to the server. **Settings** (small link at the bottom of My computer) asks for the PIN (5 wrong tries lock it for 60 seconds). Unlocked, it shows only the server address, which is checked before saving. The IT PIN is set once during IT setup and cannot be changed from the app. Users see neither the key nor the address without the PIN. The PIN protects against casual changes by the person at the keyboard, not against someone who can read `config.json` and the file system. If IT forgets the PIN, delete `config.json` in the app data folder and run IT setup again.
+**Without the IT PIN the app is view-only**: anyone can look at *My computer* and *Full details*, but **Report now** (window and tray), **signup**, **Update my details** (also when IT asked the user to confirm their details from the dashboard) and **Settings** need the current PIN. The server enforces it for manual scans, `register` and `PUT /user`. A correct PIN unlocks the app for 10 minutes (shown as "Unlocked for IT · Lock") or until the window is hidden, so one PIN covers several actions; the PIN is kept in memory only for that time. Wrong tries share one lockout (5 in a row lock every PIN prompt for 60 seconds). Scans the dashboard asks for (*Scan now*) and *Send logs* need no PIN. There is no enrollment-key fallback for these actions: with the server unreachable the app says "Can't reach the server. Try again when this computer is online."
 
-Changing the employee ID hands the computer to that person (the dashboard records it as `self-service`). If the server stops recognising the computer (HTTP 401, e.g. after it was re-registered elsewhere), the app says so and offers *Register this computer again* (behind the IT PIN); IT enters the key again and the saved details are prefilled.
+**Update my details** saves to the server and asks for the PIN (unless the session is already unlocked). **Settings** (small link at the bottom of My computer) asks for the **IT PIN**: the 6-digit PIN on the dashboard's **IT PIN** page (`/it-pin`), the same for every PC and changed every hour (at the top of the hour in `DISPLAY_TIMEZONE`, or at once with *Change now*). The app sends the typed PIN to the server, which checks it against the current PIN only (no grace for the previous hour); the PC clock does not matter and no PIN is stored on the PC. 5 wrong tries in a row lock Settings for 60 seconds, and the server also refuses a PC after 5 wrong PINs within a minute. Unlocked, Settings shows only the server address, which is checked before saving. Users see neither the key nor the address without the PIN. The server records every attempt (time, success or not) and the device page lists the recent ones.
+
+**If the server cannot be reached** (no reply, a timeout or a server error) Settings says "Can't reach the server. Enter the enrollment key to change the server address." and checks the typed key against the saved hash, so IT can fix a wrong server address. Wrong keys count towards the same 5-tries lockout. An unlock this way is written to the PC's local log ("IT settings were opened with the enrollment key") and reaches the server with the next *Send logs*. The same happens when the server no longer recognises the computer (the PIN cannot be checked then, and the key is needed to register again anyway). A computer with no saved hash (registered with the CLI or by an older app version; older per-PC PIN hashes are dropped when the app starts) cannot unlock this way: the app says so, and it gets the hash the next time IT runs *Register this computer again* on it. If IT rotates the enrollment key on the server, PCs keep the hash of the old key until they are registered again. To reset a PC completely, delete `config.json` in the app data folder and run IT setup again.
+
+The PIN protects against casual changes by the person at the keyboard, not against someone who can read `config.json` and the file system. **There is no dashboard login yet, so anyone on the network who can open the dashboard can read the current PIN**; that is accepted until staff login arrives.
+
+Changing the employee ID hands the computer to that person (the dashboard records it as `self-service`). If the server stops recognising the computer (HTTP 401, e.g. after it was re-registered elsewhere), the app says so and offers *Register this computer again* (it asks for the enrollment key, since the server cannot check the PIN); IT enters the key again and the saved details are prefilled.
 
 A computer registered with the CLI (which stores no user details locally) opens to My computer too; "Assigned to" reads "Not known on this computer" until the user presses *Update my details* once.
 
@@ -93,13 +99,13 @@ Run these in PowerShell (Windows) or Terminal (macOS), from the folder holding t
 pcreader capture-raw --out pcreader-raw
 
 # 2. Register this computer and its user
-pcreader register --server http://192.168.1.10:3000 --key <ENROLLMENT_KEY> \
+pcreader register --server http://192.168.1.10:3000 --key <ENROLLMENT_KEY> --pin <IT_PIN> \
   --name "Juan Dela Cruz" --employee-id EMP-0001 --department Finance \
   --position "Accountant II" --email juan@example.gov.ph --phone "+63 917 000 0001" \
   --accept-policy
 
 # 3. Scan and upload
-pcreader scan --upload
+pcreader scan --upload --pin <IT_PIN>
 
 # Other commands
 pcreader scan --out scan.json   # scan and save the payload without uploading

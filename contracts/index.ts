@@ -14,6 +14,8 @@ import eventsRequestSchema from "./agent-api/events.request.schema.json";
 import eventsMessageSchema from "./agent-api/events.message.schema.json";
 import logsRequestSchema from "./agent-api/logs.request.schema.json";
 import logsResponseSchema from "./agent-api/logs.response.schema.json";
+import settingsUnlockRequestSchema from "./agent-api/settings-unlock.request.schema.json";
+import settingsUnlockResponseSchema from "./agent-api/settings-unlock.response.schema.json";
 import requestCompleteSchema from "./agent-api/request-complete.request.schema.json";
 import requestCompleteResponseSchema from "./agent-api/request-complete.response.schema.json";
 
@@ -32,6 +34,8 @@ export const schemas = {
   logsResponse: logsResponseSchema,
   requestComplete: requestCompleteSchema,
   requestCompleteResponse: requestCompleteResponseSchema,
+  settingsUnlockRequest: settingsUnlockRequestSchema,
+  settingsUnlockResponse: settingsUnlockResponseSchema,
 };
 
 const ajv = new Ajv2020({ allErrors: true, strict: true });
@@ -42,7 +46,7 @@ ajv.addSchema(networkSnapshotSchema);
 export const validateScanPayload = ajv.compile<ScanPayload>(scanPayloadSchema);
 export const validateRegisterRequest = ajv.compile<RegisterRequest>(registerRequestSchema);
 export const validateRegisterResponse = ajv.compile<RegisterResponse>(registerResponseSchema);
-export const validateUserRequest = ajv.compile<UserDetails>(userRequestSchema);
+export const validateUserRequest = ajv.compile<UserRequest>(userRequestSchema);
 export const validateScansRequest = ajv.compile<ScansRequest>(scansRequestSchema);
 export const validateScansResponse = ajv.compile<ScansResponse>(scansResponseSchema);
 
@@ -53,6 +57,9 @@ export const validateEventsMessage = ajv.compile<EventsMessage>(eventsMessageSch
 export const validateLogsRequest = ajv.compile<LogsRequest>(logsRequestSchema);
 export const validateLogsResponse = ajv.compile<LogsResponse>(logsResponseSchema);
 export const validateRequestComplete = ajv.compile<RequestCompleteRequest>(requestCompleteSchema);
+
+export const validateSettingsUnlockRequest = ajv.compile<SettingsUnlockRequest>(settingsUnlockRequestSchema);
+export const validateSettingsUnlockResponse = ajv.compile<SettingsUnlockResponse>(settingsUnlockResponseSchema);
 
 export const validateRequestCompleteResponse = ajv.compile<RequestCompleteResponse>(requestCompleteResponseSchema);
 
@@ -143,8 +150,13 @@ export interface UserDetails {
   phone: string | null;
 }
 
+export interface UserRequest extends UserDetails {
+  it_pin: string;
+}
+
 export interface RegisterRequest {
   enrollment_key: string;
+  it_pin: string;
   device_uuid: string;
   os_type: OsType;
   hostname: string;
@@ -170,6 +182,7 @@ export interface ScansRequest {
   scan_uuid: string;
   scan_type: ScanType;
   collected_at: string;
+  it_pin?: string;
   payload: ScanPayload;
 }
 
@@ -235,4 +248,12 @@ export interface RequestCompleteRequest {
 export interface RequestCompleteResponse {
   id: string;
   status: "done" | "failed";
+}
+
+export interface SettingsUnlockRequest {
+  pin: string;
+}
+
+export interface SettingsUnlockResponse {
+  ok: true;
 }

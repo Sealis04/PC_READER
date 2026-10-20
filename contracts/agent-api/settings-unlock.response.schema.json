@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pcreader.internal/contracts/agent-api/settings-unlock.response.schema.json",
+  "title": "POST /api/agent/settings-unlock 200 response",
+  "description": "Only sent when the PIN is the current one.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["ok"],
+  "properties": {
+    "ok": { "const": true }
+  }
+}

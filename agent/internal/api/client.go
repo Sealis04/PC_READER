@@ -89,6 +89,10 @@ func (c *Client) do(ctx context.Context, method, path, token string, body any, o
 		lastErr = err
 		// status 0 means no response at all (network error or timeout).
 		transient := status == 0 || retryable(status)
+		var apiErr *Error
+		if errors.As(err, &apiErr) && apiErr.Code == "too_many_attempts" {
+			transient = false // wrong-PIN rate limit: waiting a few seconds will not clear it
+		}
 		if !transient || ctx.Err() != nil || attempt >= len(c.Backoff) {
 			return status, lastErr
 		}
@@ -161,10 +165,10 @@ func (c *Client) UploadScan(ctx context.Context, token string, req payload.ScanR
 }
 
 // UpdateUser sends the user's corrected details (or a new person's, which reassigns the
-// computer) and returns the details as stored.
-func (c *Client) UpdateUser(ctx context.Context, token string, u payload.UserDetails) (*payload.UserDetails, error) {
+// computer) with the current IT PIN, and returns the details as stored. A wrong PIN is a 403 *Error.
+func (c *Client) UpdateUser(ctx context.Context, token string, u payload.UserDetails, pin string) (*payload.UserDetails, error) {
 	var out payload.UserDetails
-	if _, err := c.do(ctx, http.MethodPut, "/api/agent/user", token, u, &out, http.StatusOK); err != nil {
+	if _, err := c.do(ctx, http.MethodPut, "/api/agent/user", token, payload.UserRequest{UserDetails: u, ITPIN: pin}, &out, http.StatusOK); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -191,6 +195,24 @@ func (c *Client) CompleteRequest(ctx context.Context, token, id string, res payl
 	var out struct{}
 	_, err := c.do(ctx, http.MethodPost, "/api/agent/requests/"+id+"/complete", token, res, &out, http.StatusOK)
 	return err
+}
+
+// UnlockSettings asks the server whether pin is the current IT PIN. It returns nil only for a yes. A
+// wrong PIN is an *Error with Status 403 and Code "wrong_pin"; too many tries is Status 429;
+// ErrUnauthorized means the server rejected the device token. Anything else (no reply, 5xx) means the
+// server could not answer, which the caller treats as offline. It never retries, so a PC that cannot
+// reach the server finds out quickly.
+func (c *Client) UnlockSettings(ctx context.Context, token, pin string) error {
+	once := *c
+	once.Backoff = nil
+	var out payload.SettingsUnlockResponse
+	if _, err := once.do(ctx, http.MethodPost, "/api/agent/settings-unlock", token, payload.SettingsUnlockRequest{PIN: pin}, &out, http.StatusOK); err != nil {
+		return err
+	}
+	if !out.OK {
+		return errors.New("unexpected response from server")
+	}
+	return nil
 }
 
 // Ping checks that the server answers, without retries: any 2xx or 3xx reply from the

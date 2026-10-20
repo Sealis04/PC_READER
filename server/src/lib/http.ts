@@ -8,6 +8,8 @@ export type ErrorCode =
   | "unauthorized"
   | "invalid_enrollment_key"
   | "enrollment_disabled"
+  | "wrong_pin"
+  | "too_many_attempts"
   | "payload_too_large"
   | "unsupported_media_type"
   | "not_found"

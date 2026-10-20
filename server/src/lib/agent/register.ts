@@ -2,6 +2,7 @@ import { formatErrors, validateRegisterRequest, type RegisterResponse } from "@p
 import { and, eq, isNull } from "drizzle-orm";
 import type { Db } from "@/db";
 import { assignments, devices, users } from "@/db/schema";
+import { clientIp, pinErrorResponse, verifyPin } from "@/lib/it-pin";
 import { HttpError, errorResponse, jsonResponse, readJson } from "@/lib/http";
 import { generateDeviceToken, hashToken, secretsMatch } from "@/lib/tokens";
 
@@ -34,6 +35,11 @@ export async function handleRegister(req: Request, db: Db): Promise<Response> {
   if (!secretsMatch(body.enrollment_key, expectedKey)) {
     return errorResponse(403, "invalid_enrollment_key", "Enrollment key is not valid");
   }
+
+  // Enrollment key first (403 above), then the hourly IT PIN. There is no device yet, so wrong PINs are
+  // rate-limited per client IP.
+  const refused = pinErrorResponse(await verifyPin(db, { deviceId: null, clientIp: clientIp(req) }, body.it_pin, "register"));
+  if (refused) return refused;
 
   const token = generateDeviceToken();
   const now = new Date();

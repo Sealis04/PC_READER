@@ -148,6 +148,12 @@ type UserDetails struct {
 	Phone      *string `json:"phone"`
 }
 
+// UserRequest is the body of PUT /api/agent/user: the details plus the current hourly IT PIN.
+type UserRequest struct {
+	UserDetails
+	ITPIN string `json:"it_pin"`
+}
+
 // User is the registration's user: their details plus the data-use notice acceptance.
 type User struct {
 	UserDetails
@@ -156,6 +162,7 @@ type User struct {
 
 type RegisterRequest struct {
 	EnrollmentKey   string  `json:"enrollment_key"`
+	ITPIN           string  `json:"it_pin"`
 	DeviceUUID      string  `json:"device_uuid"`
 	OSType          string  `json:"os_type"`
 	Hostname        string  `json:"hostname"`
@@ -173,7 +180,9 @@ type ScanRequest struct {
 	ScanUUID    string `json:"scan_uuid"`
 	ScanType    string `json:"scan_type"`
 	CollectedAt string `json:"collected_at"`
-	Payload     *Scan  `json:"payload"`
+	// ITPIN is the hourly IT PIN; the server requires it for scan_type "manual" only.
+	ITPIN   string `json:"it_pin,omitempty"`
+	Payload *Scan  `json:"payload"`
 }
 
 type ScanResponse struct {
@@ -206,6 +215,14 @@ type LogsRequest struct {
 
 type LogsResponse struct {
 	ReceivedIDs []int64 `json:"received_ids"`
+}
+
+type SettingsUnlockRequest struct {
+	PIN string `json:"pin"`
+}
+
+type SettingsUnlockResponse struct {
+	OK bool `json:"ok"`
 }
 
 // Request types a dashboard can queue (events.message).

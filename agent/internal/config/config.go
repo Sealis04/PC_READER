@@ -17,7 +17,7 @@ import (
 
 const keyringService = "PCReader"
 
-// Config is saved as config.json in Dir(). It holds no secrets (the IT PIN is only a salted hash), but it does hold the
+// Config is saved as config.json in Dir(). It holds no secrets (the enrollment key is only a salted hash), but it does hold the
 // user's details and the last scan (for the desktop app); neither is ever logged.
 type Config struct {
 	ServerURL    string `json:"server_url"`
@@ -29,8 +29,11 @@ type Config struct {
 	// LastReportAt is when the last scan was uploaded (RFC 3339, UTC); LastPayload is that scan.
 	LastReportAt string        `json:"last_report_at,omitempty"`
 	LastPayload  *payload.Scan `json:"last_payload,omitempty"`
-	// ITPin is the salted hash of the PIN that protects the desktop app's IT settings.
-	ITPin *PinHash `json:"it_pin,omitempty"`
+	// EnrollmentKeyHash is the salted hash of the enrollment key IT typed at setup. It opens the desktop
+	// app's Settings when the server cannot be reached (the hourly IT PIN is checked by the server).
+	EnrollmentKeyHash *SecretHash `json:"enrollment_key_hash,omitempty"`
+	// LegacyITPin is the per-PC PIN hash older versions saved. It is read only to be removed.
+	LegacyITPin json.RawMessage `json:"it_pin,omitempty"`
 }
 
 // Dir is the app data folder: %AppData%\PCReader on Windows,
@@ -70,6 +73,11 @@ func Load() (*Config, error) {
 	var c Config
 	if err := json.Unmarshal(b, &c); err != nil {
 		return nil, fmt.Errorf("%s is corrupt: %w", p, err)
+	}
+	if c.LegacyITPin != nil {
+		// The per-PC PIN is gone (the server issues the IT PIN now); drop the old hash from disk.
+		c.LegacyITPin = nil
+		_ = c.Save()
 	}
 	return &c, nil
 }

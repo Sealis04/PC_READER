@@ -1,9 +1,10 @@
 # Project state — ccr-510da39c-6w5qgz
 
-**Goal (current):** Milestone 4 — inventory numbers and statuses (see `plans/m4-inventory-tags/plan.md`).
+**Goal (current):** Milestone 5 — hourly IT PIN from the dashboard (see `plans/m5-hourly-it-pin/plan.md`).
 
 ## In progress
-- builder-1: M4 — status/number/location history, `IA-YYYY-NNNNN` counter, device page editors + QR label, list filters and search
+- builder-1: M5 — server-checked hourly IT PIN shown on the dashboard, enrollment-key fallback offline, unlock log
+- PR #8 (M4) waiting for the user's review and dashboard test
 
 ## Queued
 - Planner checks builder-1's PR and CI; user reviews, merges and tests
