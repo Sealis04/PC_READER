@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
   bigint,
   boolean,
+  customType,
   index,
   integer,
   jsonb,
@@ -133,6 +134,20 @@ export const deviceFieldHistory = pgTable(
 
 // Highest generated (or typed, pattern-matching) inventory number per year. Only ever raised, so a
 // number is never issued twice.
+const bytea = customType<{ data: Buffer }>({ dataType: () => "bytea" });
+
+// Single row (id = 1): this server's agency branding and inventory number prefix. Created lazily with
+// the defaults; the migration that introduced it sets the prefix to IA when IA-YYYY-NNNNN numbers exist.
+export const appSettings = pgTable("app_settings", {
+  id: integer("id").primaryKey().default(1),
+  agencyName: text("agency_name").notNull().default("PC_READER"),
+  inventoryPrefix: text("inventory_prefix").notNull().default("INV"),
+  logo: bytea("logo"),
+  logoContentType: text("logo_content_type"),
+  logoUpdatedAt: timestamp("logo_updated_at", { withTimezone: true }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const inventoryCounters = pgTable("inventory_counters", {
   year: integer("year").primaryKey(),
   lastValue: integer("last_value").notNull(),
