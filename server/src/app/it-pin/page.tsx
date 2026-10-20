@@ -17,7 +17,7 @@ export default async function ItPinPage() {
       </div>
       <section className="panel pad">
         <PinBox initialPin={pin} initialExpiresAt={expiresAt.toISOString()} timeZone={TIME_ZONE} />
-        <p className="sub">There is no dashboard login yet, so anyone who can open this page can see the PIN.</p>
+        <p className="sub">Only signed-in IT staff can see this page.</p>
       </section>
     </>
   );

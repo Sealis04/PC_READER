@@ -54,8 +54,15 @@
     {
       "idx": 7,
       "version": "7",
-      "when": 1792477361557,
-      "tag": "0007_sour_tempest",
+      "when": 1792474019998,
+      "tag": "0007_nostalgic_slayback",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1792479951405,
+      "tag": "0008_mysterious_ben_urich",
       "breakpoints": true
     }
   ]

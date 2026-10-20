@@ -21,11 +21,12 @@ export async function prepareDatabase(): Promise<void> {
   process.env.DATABASE_URL ??= "postgres://postgres@127.0.0.1:5432/pcreader_test";
   process.env.ENROLLMENT_KEY = ENROLLMENT_KEY;
   process.env.IT_PIN_SECRET = TEST_PIN_SECRET;
+  process.env.SECRETS_KEY ??= Buffer.alloc(32, 7).toString("base64");
   await runMigrations();
 }
 
 export async function resetDatabase(): Promise<void> {
-  await getDb().execute(sql`truncate table staff_events, staff_session, staff_account, staff_verification, staff_user, app_settings, settings_unlock_attempts, it_pin_state, status_history, device_field_history, inventory_counters, device_requests, device_logs, network_logs, scans, components, assignments, devices, users restart identity cascade`);
+  await getDb().execute(sql`truncate table staff_events, staff_session, staff_account, staff_verification, staff_user, secret_access_log, device_field_values, custom_fields, app_settings, settings_unlock_attempts, it_pin_state, status_history, device_field_history, inventory_counters, device_requests, device_logs, network_logs, scans, components, assignments, devices, users restart identity cascade`);
 }
 
 export function jsonRequest(path: string, body: unknown, headers: Record<string, string> = {}): Request {

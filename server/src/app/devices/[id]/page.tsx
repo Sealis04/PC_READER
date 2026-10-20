@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { getDb } from "@/db";
 import { requireStaff } from "@/lib/staff-auth";
 import type { Component } from "@/db/schema";
+import { CustomFieldsPanel, type FieldRow } from "../_components/custom-fields-panel";
 import { InventoryPanel } from "../_components/inventory-panel";
 import { RequestActions, type RequestRow } from "../_components/request-actions";
 import {
@@ -17,7 +18,9 @@ import {
   REQUEST_STATUS_LABEL,
   STATUS_LABEL,
 } from "@/lib/format";
+import { getDeviceFields, getSecretAccessLog } from "@/lib/custom-fields";
 import { getUnlockAttempts, PIN_METHOD_LABEL } from "@/lib/it-pin";
+import { secretsDisabledReason } from "@/lib/secrets-crypto";
 import { REQUEST_TYPES } from "@/lib/requests";
 import { getDeviceDetail, getDeviceHistory, getDeviceLogs, getLatestRequests, getNetworkHistory, LOG_LIMIT, NETWORK_LIMIT } from "@/lib/queries";
 
@@ -55,6 +58,7 @@ const HISTORY_LABEL = {
   status: "Status",
   inventory_number: "Inventory number",
   location: "Location",
+  custom_field: "Field",
   assigned: "Assigned to",
   unassigned: "Unassigned from",
 } as const;
@@ -63,6 +67,8 @@ function historyValue(kind: string, v: string | null): string {
   if (v === null) return "none";
   return kind === "status" ? (STATUS_LABEL[v as keyof typeof STATUS_LABEL] ?? v) : v;
 }
+
+const SECRET_ACTION_LABEL = { reveal: "revealed", set: "changed", clear: "cleared" } as const;
 
 const LEVELS = ["error", "warning", "info"] as const;
 
@@ -81,13 +87,22 @@ export default async function DevicePage({
   const detail = await getDeviceDetail(db, id);
   if (!detail) notFound();
   const level = LEVELS.find((l) => l === levelParam);
-  const [latestRequests, logs, network, history, unlocks] = await Promise.all([
+  const [latestRequests, logs, network, history, unlocks, customRows, secretLog] = await Promise.all([
     getLatestRequests(db, id),
     getDeviceLogs(db, id, level),
     getNetworkHistory(db, id),
     getDeviceHistory(db, id),
     getUnlockAttempts(db, id),
+    getDeviceFields(db, id),
+    getSecretAccessLog(db, id),
   ]);
+  const fieldRows: FieldRow[] = customRows.map((r) => ({
+    id: r.field.id,
+    name: r.field.name,
+    type: r.field.type,
+    value: r.field.type === "date" ? r.date : r.field.type === "text" ? r.text : null,
+    hasSecret: r.hasSecret,
+  }));
   const requestRows: RequestRow[] = REQUEST_TYPES.map((type) => {
     const r = latestRequests.get(type);
     const when = r ? (r.completedAt ?? r.deliveredAt ?? r.createdAt) : null;
@@ -126,6 +141,13 @@ export default async function DevicePage({
           <p className="sub">
             {device.inventoryNumber ? <Link href={`/devices/${device.id}/label`}>Print label</Link> : "Assign a number to print its label."}
           </p>
+        </div>
+      </section>
+
+      <section>
+        <h2>Custom fields</h2>
+        <div className="panel pad">
+          <CustomFieldsPanel deviceId={device.id} rows={fieldRows} secretsReason={secretsDisabledReason()} />
         </div>
       </section>
 
@@ -198,8 +220,10 @@ export default async function DevicePage({
                 <li key={i}>
                   <span className="num sub">{formatDateTime(h.at)}</span>
                   <span>
-                    {HISTORY_LABEL[h.kind]}:{" "}
-                    {h.kind === "assigned" ? (
+                    {h.kind === "custom_field" ? (h.fieldName ?? HISTORY_LABEL[h.kind]) : HISTORY_LABEL[h.kind]}:{" "}
+                    {h.kind === "custom_field" && h.secret ? (
+                      <strong>changed</strong>
+                    ) : h.kind === "assigned" ? (
                       h.to
                     ) : h.kind === "unassigned" ? (
                       h.from
@@ -217,6 +241,27 @@ export default async function DevicePage({
           )}
         </div>
       </section>
+
+      {secretLog.length > 0 && (
+        <section>
+          <h2>Secret access</h2>
+          <div className="panel pad">
+            <ul className="timeline">
+              {secretLog.map((l) => (
+                <li key={l.id}>
+                  <span className="num sub">{formatDateTime(l.accessedAt)}</span>
+                  <span>
+                    <span className={`pill${l.success ? "" : " warn"}`}>{l.success ? "Allowed" : "Refused"}</span> {SECRET_ACTION_LABEL[l.action]} <strong>{l.fieldName}</strong>
+                    {l.staffName && <span className="sub"> · by {l.staffName}</span>}
+                    {l.clientIp && <span className="sub"> · from {l.clientIp}</span>}
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <p className="sub">Secret values are never written to this log.</p>
+          </div>
+        </section>
+      )}
 
       <section>
         <h2>IT PIN attempts</h2>

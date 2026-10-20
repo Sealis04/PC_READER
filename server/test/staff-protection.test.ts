@@ -3,11 +3,11 @@ import type { RegisterResponse } from "@pcreader/contracts";
 import { desc, eq } from "drizzle-orm";
 import { NextRequest } from "next/server";
 import { closeDb, getDb } from "@/db";
-import { deviceFieldHistory, deviceRequests, staffEvents, staffUser, statusHistory } from "@/db/schema";
+import { deviceFieldHistory, deviceRequests, secretAccessLog, staffEvents, staffUser, statusHistory } from "@/db/schema";
 import { handleRegister } from "@/lib/agent/register";
 import { getDeviceHistory } from "@/lib/queries";
 import { isOpenPath, proxy } from "@/proxy";
-import { jsonRequest, prepareDatabase, registerFixture, resetDatabase } from "./helpers";
+import { jsonRequest, prepareDatabase, registerFixture, resetDatabase, testPin } from "./helpers";
 import { hrisProfile, sessionCookie, signIn, startMockHris, stopMockHris } from "./mock-hris";
 
 const ROUTE_DIR = `${import.meta.dir}/../src/app/api/dashboard`;
@@ -43,7 +43,20 @@ const call = (h: Handler, method: string, headers: Record<string, string> = {}) 
 describe("dashboard API sweep", () => {
   test("finds the dashboard routes", async () => {
     const files = new Set((await dashboardHandlers()).map((h) => h.file));
-    expect([...files].sort()).toEqual(["devices/[id]/inventory/route.ts", "devices/[id]/requests/route.ts", "it-pin/route.ts", "settings/logo/route.ts", "settings/route.ts"]);
+    expect([...files].sort()).toEqual([
+      "devices/[id]/fields/[fieldId]/reveal/route.ts",
+      "devices/[id]/fields/[fieldId]/route.ts",
+      "devices/[id]/fields/[fieldId]/secret/route.ts",
+      "devices/[id]/fields/route.ts",
+      "devices/[id]/inventory/route.ts",
+      "devices/[id]/requests/route.ts",
+      "fields/[id]/route.ts",
+      "fields/order/route.ts",
+      "fields/route.ts",
+      "it-pin/route.ts",
+      "settings/logo/route.ts",
+      "settings/route.ts",
+    ]);
   });
 
   test("every route and method answers 401 without a session", async () => {
@@ -179,6 +192,34 @@ describe("who did it", () => {
     const history = await getDeviceHistory(getDb(), id);
     expect(history.find((h) => h.kind === "status")?.by).toBe("someone-before-login");
     expect(history.find((h) => h.kind === "assigned")?.by).toBe("self-registration");
+  });
+
+  test("custom field changes and secret access carry the staff id", async () => {
+    const id = await newDevice("PC-4");
+    const { staff, cookie } = await asStaff();
+    const call = async (file: string, method: string, body: unknown, params: Record<string, string>) => {
+      const mod = (await import(`${ROUTE_DIR}/${file}`)) as Record<string, (req: Request, ctx: { params: Promise<Record<string, string>> }) => Promise<Response>>;
+      return mod[method](new Request("http://pcreader.test/x", { method, headers: { "content-type": "application/json", cookie, "x-forwarded-for": "10.0.0.9" }, body: JSON.stringify(body) }), { params: Promise.resolve(params) });
+    };
+    const key = process.env.SECRETS_KEY;
+    process.env.SECRETS_KEY = Buffer.alloc(32, 1).toString("base64");
+    try {
+      const text = (await (await call("fields/route.ts", "POST", { name: "Email", type: "text" }, {})).json()) as { id: string };
+      const secret = (await (await call("fields/route.ts", "POST", { name: "Admin password", type: "secret" }, {})).json()) as { id: string };
+      expect((await call("devices/[id]/fields/[fieldId]/route.ts", "PUT", { value: "a@x.ph" }, { id, fieldId: text.id })).status).toBe(200);
+      expect((await call("devices/[id]/fields/[fieldId]/secret/route.ts", "PUT", { value: "hunter2", pin: testPin() }, { id, fieldId: secret.id })).status).toBe(200);
+      expect((await call("devices/[id]/fields/[fieldId]/reveal/route.ts", "POST", { pin: testPin() }, { id, fieldId: secret.id })).status).toBe(200);
+      expect((await call("devices/[id]/fields/[fieldId]/reveal/route.ts", "POST", { pin: "wrong" }, { id, fieldId: secret.id })).status).toBe(403);
+    } finally {
+      if (key === undefined) delete process.env.SECRETS_KEY;
+      else process.env.SECRETS_KEY = key;
+    }
+    const log = await getDb().select().from(secretAccessLog);
+    expect(log.map((l) => [l.action, l.success]).sort()).toEqual([["reveal", false], ["reveal", true], ["set", true]]);
+    expect(log.every((l) => l.staffUserId === staff.id)).toBe(true);
+    expect((await getDb().select().from(deviceFieldHistory)).every((h) => h.changedBy === staff.id)).toBe(true);
+    const history = await getDeviceHistory(getDb(), id);
+    expect(history.filter((h) => h.kind === "custom_field").every((h) => h.by === "Ira IT")).toBe(true);
   });
 
   test("a queued request records the staff id", async () => {

@@ -24,6 +24,8 @@ const base = {
     .$onUpdate(() => new Date()),
 };
 
+const bytea = customType<{ data: Buffer }>({ dataType: () => "bytea" });
+
 export const osType = pgEnum("os_type", ["windows", "macos"]);
 export const deviceStatus = pgEnum("device_status", [
   "in_use",
@@ -33,7 +35,7 @@ export const deviceStatus = pgEnum("device_status", [
   "disposed",
   "lost",
 ]);
-export const deviceHistoryField = pgEnum("device_history_field", ["inventory_number", "location"]);
+export const deviceHistoryField = pgEnum("device_history_field", ["inventory_number", "location", "custom_field"]);
 export const componentCategory = pgEnum("component_category", [
   "cpu",
   "ram",
@@ -49,7 +51,9 @@ export const requestType = pgEnum("request_type", ["scan_now", "send_logs", "pro
 export const requestStatus = pgEnum("request_status", ["pending", "delivered", "done", "failed"]);
 export const connectionType = pgEnum("connection_type", ["ethernet", "wifi", "other"]);
 export const logLevel = pgEnum("log_level", ["error", "warning", "info"]);
-export const unlockMethod = pgEnum("unlock_method", ["hourly_pin", "register", "update_details", "manual_scan", "confirm_details"]);
+export const unlockMethod = pgEnum("unlock_method", ["hourly_pin", "register", "update_details", "manual_scan", "confirm_details", "reveal_secret", "set_secret"]);
+export const customFieldType = pgEnum("custom_field_type", ["text", "date", "secret"]);
+export const secretAction = pgEnum("secret_action", ["reveal", "set", "clear"]);
 export const logCategory = pgEnum("log_category", ["scan", "sync", "signup", "update", "system"]);
 
 export const users = pgTable("users", {
@@ -114,6 +118,61 @@ export const statusHistory = pgTable(
   (t) => [index("status_history_device_idx").on(t.deviceId, t.changedAt)],
 );
 
+// IT-defined extra fields, the same set for every device. Archived fields are hidden but their values
+// are kept; fields are never deleted.
+export const customFields = pgTable(
+  "custom_fields",
+  {
+    ...base,
+    name: text("name").notNull(),
+    type: customFieldType("type").notNull(),
+    position: integer("position").notNull().default(0),
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+  },
+  (t) => [index("custom_fields_position_idx").on(t.position)],
+);
+
+// One value per device and field. text_value / date_value (YYYY-MM-DD) for text and date fields; a
+// secret is only ever stored as AES-256-GCM ciphertext + nonce (see lib/secrets-crypto.ts).
+export const deviceFieldValues = pgTable(
+  "device_field_values",
+  {
+    deviceId: uuid("device_id")
+      .notNull()
+      .references(() => devices.id, { onDelete: "cascade" }),
+    fieldId: uuid("field_id")
+      .notNull()
+      .references(() => customFields.id),
+    textValue: text("text_value"),
+    dateValue: text("date_value"),
+    secretCiphertext: bytea("secret_ciphertext"),
+    secretNonce: bytea("secret_nonce"),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("device_field_values_device_field_idx").on(t.deviceId, t.fieldId), index("device_field_values_field_idx").on(t.fieldId)],
+);
+
+// Append-only: every reveal / set / clear of a secret value, successful or not. Never the value.
+export const secretAccessLog = pgTable(
+  "secret_access_log",
+  {
+    ...base,
+    deviceId: uuid("device_id")
+      .notNull()
+      .references(() => devices.id, { onDelete: "cascade" }),
+    fieldId: uuid("field_id")
+      .notNull()
+      .references(() => customFields.id),
+    action: secretAction("action").notNull(),
+    success: boolean("success").notNull(),
+    clientIp: text("client_ip"),
+    // The signed-in staff member (staff_user.id); null for rows written before staff login existed.
+    staffUserId: text("staff_user_id").references(() => staffUser.id),
+    accessedAt: timestamp("accessed_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("secret_access_log_device_idx").on(t.deviceId, t.accessedAt)],
+);
+
 // Append-only: one row per change of a device's inventory number or location (null = not set).
 export const deviceFieldHistory = pgTable(
   "device_field_history",
@@ -123,6 +182,8 @@ export const deviceFieldHistory = pgTable(
       .notNull()
       .references(() => devices.id, { onDelete: "cascade" }),
     field: deviceHistoryField("field").notNull(),
+    // Set when field = custom_field (which custom field changed). Secret changes carry no values.
+    customFieldId: uuid("custom_field_id").references(() => customFields.id),
     oldValue: text("old_value"),
     newValue: text("new_value"),
     changedBy: text("changed_by"),
@@ -134,7 +195,6 @@ export const deviceFieldHistory = pgTable(
 
 // Highest generated (or typed, pattern-matching) inventory number per year. Only ever raised, so a
 // number is never issued twice.
-const bytea = customType<{ data: Buffer }>({ dataType: () => "bytea" });
 
 // Single row (id = 1): this server's agency branding and inventory number prefix. Created lazily with
 // the defaults; the migration that introduced it sets the prefix to IA when IA-YYYY-NNNNN numbers exist.
@@ -403,3 +463,5 @@ export type DeviceRequest = typeof deviceRequests.$inferSelect;
 export type NetworkLog = typeof networkLogs.$inferSelect;
 export type DeviceLog = typeof deviceLogs.$inferSelect;
 export type SettingsUnlockAttempt = typeof settingsUnlockAttempts.$inferSelect;
+export type CustomField = typeof customFields.$inferSelect;
+export type SecretAccessLogRow = typeof secretAccessLog.$inferSelect;

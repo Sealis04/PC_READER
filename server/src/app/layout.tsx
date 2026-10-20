@@ -38,6 +38,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                 <nav>
                   <Link href="/devices">Devices</Link>
                   <Link href="/it-pin">IT PIN</Link>
+                  <Link href="/fields">Fields</Link>
                   <Link href="/settings">Settings</Link>
                 </nav>
                 <div className="who">

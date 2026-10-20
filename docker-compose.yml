@@ -44,6 +44,7 @@ services:
       HRIS_CLIENT_ID: ${HRIS_CLIENT_ID:-}
       HRIS_CLIENT_SECRET: ${HRIS_CLIENT_SECRET:-}
       HRIS_ALLOWED_USER_LEVELS: ${HRIS_ALLOWED_USER_LEVELS:-IT}
+      SECRETS_KEY: ${SECRETS_KEY:-}
     ports:
       - "0.0.0.0:3000:3000"
     depends_on:

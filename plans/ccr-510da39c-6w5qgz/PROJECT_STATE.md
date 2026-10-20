@@ -3,11 +3,9 @@
 **Goal (current):** Milestone 5 — hourly IT PIN from the dashboard (see `plans/m5-hourly-it-pin/plan.md`).
 
 ## In progress
-- builder-1: M5 — server-checked hourly IT PIN shown on the dashboard, enrollment-key fallback offline, unlock log
-- PR #8 (M4) waiting for the user's review and dashboard test
+- builder-1: M6 custom fields with secret fields (`plans/m6-custom-fields/plan.md`)
 
 ## Queued
-- M6 custom fields with secret fields (`plans/m6-custom-fields/plan.md`) — start Builder 1 after M5 round 4 is merged
 - Planner checks builder-1's PR and CI; user reviews, merges and tests
 - Merge `ccr-510da39c-6w5qgz` (M2–M4) into `main`
 - Later milestones: staff login and roles, status history, tagging, PM reports, installer, HTTPS
@@ -16,6 +14,7 @@
 - Mac real-machine test skipped for M1–M3 (CLI, desktop app, tray, start at login) (CI live-scans a macOS VM only)
 
 ## Done
+- M5 rounds 3–4 (re-registration fix, confirm-details approval), macOS launch fix, CI only after merges, agency branding + neutral code (#13–#16)
 - M3: background app (start at login, tray, SSE wakeups, on-request scan/logs/details prompt, network snapshots, local log), dashboard online/stale/requests/logs/network, Windows NSIS installer; PRs #6 and #7 merged; tested on a real Windows PC (2026-10-19)
 - M2: desktop app (IT setup with one-time PIN, signup, My computer, Report now, Update my details, Settings), `PUT /api/agent/user`; tested on a real Windows PC; PR #4 merged into the feature branch (2026-10-19)
 - M1: contracts, server (register, scans, dashboard), Go CLI agent with Windows/macOS scanners, CI with live scans and cross-compiled builds

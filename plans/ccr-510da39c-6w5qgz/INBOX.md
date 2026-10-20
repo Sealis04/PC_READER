@@ -29,7 +29,14 @@ Do exactly **v2** in [`plans/m7-hris-login/plan.md`](../m7-hris-login/plan.md): 
 **Done when:** `bun run lint` and `bun run test` pass, `db:generate` shows no drift, #18 shows no conflicts with `main`. Summary under `### From builder-1 (M7 v2)` below. Do not fire the reviewer.
 
 ### From builder-1 (M7 v2)
-(pending)
+Merged `origin/main` (M6) into `claude/gracious-gates-sxedcy` with a merge commit; no rebase or force-push.
+- **Migrations:** M6's `0007_nostalgic_slayback` (+ snapshot) is identical to `main`. M7's `0007_sour_tempest` is gone; `bun run db:generate` produced `0008_mysterious_ben_urich` (staff tables + `secret_access_log.staff_user_id`). `db:generate` now reports no drift.
+- **Protection:** all 7 M6 routes call `requireStaffApi(req)`; the Fields page calls `requireStaff("/fields")` (the device page already did). The route sweep in `test/staff-protection.test.ts` picks them up automatically (its expected file list was extended).
+- **Who did it:** `secret_access_log.staff_user_id` is written on every reveal/set/clear attempt; `setFieldValue` / `setSecret` write `changed_by` in the history; the device page's *Secret access* list shows "by <name>" and the history shows the staff name for custom-field changes. Handlers `handleSetFieldValue/handleSetSecret/handleRevealSecret` take `staffId` as a last parameter. The IT PIN is still required to reveal or set a secret.
+- **Merge details:** layout nav has Devices, IT PIN, Fields, Settings (inside the staff-only block); `getDeviceHistory` joins both staff names and custom-field names; `resetDatabase` truncates staff and M6 tables; `settings.test.ts` takes main's "replay 0006's SQL" version; docker-compose has both the M7 login vars and `SECRETS_KEY`.
+- **Docs:** removed the "no dashboard login" accepted-risk text (README Fields section, Fields page, IT PIN page); kept the `SECRETS_KEY` notes; CLAUDE.md custom-fields and branding bullets updated.
+- **Tests:** new "custom field changes and secret access carry the staff id" test (route level); `custom-fields.test.ts` asserts staff id and name. The M6 routes 401 test comes from the sweep. 0007 → 0008 is exercised by `prepareDatabase`, which migrates a fresh DB through every migration; I did not add a separate upgrade test.
+- **Verified locally:** `bun run lint` OK, `bun run test` OK (server 182 pass, Go packages ok). Not verified: UI in a browser, desktop builds.
 
 ---
 
@@ -82,6 +89,33 @@ Base: `main` (f81eaf7, includes #13). **Open your PR into `main`.** Round 4 (con
 5. README: add the macOS first-launch steps that worked for the user (unzip twice, move to Applications, `xattr -cr /Applications/PC_READER.app`, Open Anyway) and how to run the binary from Terminal to see errors (`/Applications/PC_READER.app/Contents/MacOS/pcreader-desktop`).
 
 **Done when:** `bun run lint` and `bun run test` pass and CI is green, including the new macOS launch test. Write a short summary under `### From builder-1`. Do not fire the reviewer.
+
+---
+
+## builder-1 — M6 custom fields with secret fields (2026-10-20)
+
+Plan: [`plans/m6-custom-fields/plan.md`](../m6-custom-fields/plan.md) (decided with the owner on 2026-10-20). Base: `main` (branding #16 merged). **Open your PR into `main`.** Implement sections 1–4 of the plan as separate commits, pushing after each.
+
+What the owner wants: IT defines extra fields once for all devices (Text, Date, Secret) on a dashboard Fields page and fills them in per device. Secret values (e.g. local admin password) are **encrypted at rest** with `SECRETS_KEY` from `.env` (AES-256-GCM), hidden by default, and revealing or changing one requires the **current hourly IT PIN**; every reveal/change is logged without the value. Secrets never reach PCs, logs or search. Dashboard only; no agent or contract changes. The Settings page from #16 exists: put the Fields page next to it in the top bar.
+
+Accepted risk (owner decision): the dashboard has no login yet, so anyone who can open it could read the IT PIN; document it in the README as the plan says.
+
+CI runs only after merges into `main`: verify with `bun run lint` and `bun run test` locally and say what you could not verify. Do not fire the reviewer; write a summary under `### From builder-1 (M6)` and stop.
+
+### From builder-1 (M6)
+
+Four commits on `claude/cool-volta-vpm2az`, PR into `main`.
+
+1. **Schema.** Migration `0007_nostalgic_slayback`: `custom_fields`, `device_field_values` (unique per device+field; secret = ciphertext + nonce), `secret_access_log` (append-only), `device_field_history.custom_field_id` + history field value `custom_field`, and the `unlock_method` values `reveal_secret` / `set_secret`. The settings upgrade-rule test replayed "the latest migration"; it now replays 0006's SQL directly (otherwise it re-ran 0007).
+2. **Server.** `lib/secrets-crypto.ts` (AES-256-GCM, random 12-byte nonce, device+field id as AAD so a copied ciphertext does not decrypt, refuses a missing or wrong-length key), `lib/custom-fields.ts`, `lib/dashboard-fields.ts` and the routes under `/api/dashboard/fields*` and `/api/dashboard/devices/{id}/fields*`. Reveal/set verify the current PIN with `verifyPin` (rate limit shared per device), log every attempt, success or not, without the value. Text/date changes write old/new to the history; secret changes write a history row without values. Missing `SECRETS_KEY` -> 503 `secrets_unavailable`, server still starts. 17 new tests (crypto, definitions, values, wrong PIN/429, archive keeps values, no secret in any response but reveal, search and date filters).
+3. **Dashboard.** `/fields` page (add, rename, up/down, archive/restore), "Fields" in the top bar, device page "Custom fields" panel (inline text/date edit; secrets as `••••••` with Reveal / Set / Change / Clear behind a PIN field, 30 s countdown, Copy), "Secret access" log, history shows secret changes as "changed". Device list: search also covers text custom fields, plus a date-field filter (on or after / on or before).
+4. **Docs.** README section, `.env.example` and `docker-compose.yml` `SECRETS_KEY`, CLAUDE.md line.
+
+**Verified locally:** `bun run lint`, `bun run test` (server 154 incl. 17 new, contracts 42, all Go packages), `next build`, and a live `next start` smoke test (`/fields` and `/devices` render, field creation via the API).
+
+**Not verified:** the new client components in a real browser (reveal countdown, Copy, PIN form); no visual check of the Fields page or device panel. CI does not run on PRs.
+
+**Notes:** a PIN failure on a reveal counts toward the same 5-per-minute limit as the PCs' attempts for that device (subject = device id). Reorder requires listing every active field.
 
 ---
 

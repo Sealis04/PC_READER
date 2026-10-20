@@ -62,10 +62,12 @@ CREATE TABLE "staff_verification" (
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
+ALTER TABLE "secret_access_log" ADD COLUMN "staff_user_id" text;--> statement-breakpoint
 ALTER TABLE "staff_account" ADD CONSTRAINT "staff_account_user_id_staff_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."staff_user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "staff_events" ADD CONSTRAINT "staff_events_staff_user_id_staff_user_id_fk" FOREIGN KEY ("staff_user_id") REFERENCES "public"."staff_user"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "staff_session" ADD CONSTRAINT "staff_session_user_id_staff_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."staff_user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "staff_account_user_idx" ON "staff_account" USING btree ("user_id");--> statement-breakpoint
 CREATE INDEX "staff_events_created_idx" ON "staff_events" USING btree ("created_at");--> statement-breakpoint
 CREATE INDEX "staff_session_user_idx" ON "staff_session" USING btree ("user_id");--> statement-breakpoint
-CREATE INDEX "staff_verification_identifier_idx" ON "staff_verification" USING btree ("identifier");
+CREATE INDEX "staff_verification_identifier_idx" ON "staff_verification" USING btree ("identifier");--> statement-breakpoint
+ALTER TABLE "secret_access_log" ADD CONSTRAINT "secret_access_log_staff_user_id_staff_user_id_fk" FOREIGN KEY ("staff_user_id") REFERENCES "public"."staff_user"("id") ON DELETE no action ON UPDATE no action;
