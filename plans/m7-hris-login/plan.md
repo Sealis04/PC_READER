@@ -89,3 +89,20 @@ HRIS_ALLOWED_USER_LEVELS=IT
 - **Plain HTTP LAN:** session cookies travel unencrypted on HTTP; HTTPS is still recommended (unchanged risk from M1).
 - **Revocation:** removing a user's IT level in HRIS takes effect at their next sign-in (≤ 8 h session). Acceptable for now.
 - **M6 (custom fields)** is planned but not built; both add migrations. M6 should run after M7 merges and use `requireStaff` + staff id in `secret_access_log`.
+
+----
+
+## v2 — Merge with M6 (custom fields), 2026-10-20
+
+**Problem:** M6 (#17) merged into `main` first. It added migration `0007_nostalgic_slayback` (same number as M7's `0007_sour_tempest`), seven new `/api/dashboard/{fields,devices/[id]/fields}` routes without login, and a `secret_access_log` with no staff column. 15 files overlap with #18.
+
+**Fix (builder 1, on #18's branch):**
+1. Merge `origin/main` into `claude/gracious-gates-sxedcy` (merge commit, no rebase/force-push). Resolve conflicts keeping both M6 and M7 behaviour.
+2. Migrations: keep M6's `0007_nostalgic_slayback` untouched. Delete M7's `0007_sour_tempest` SQL + snapshot + journal entry, then `bun run db:generate` so M7's tables come out as `0008_*` (also with the staff column below). Never hand-edit generated SQL; `db:generate` must report no drift afterwards.
+3. Protect M6: every page (Fields page, device custom-fields panel) calls `requireStaff()`, every M6 route calls `requireStaffApi(req)`; the route-sweep test must cover them automatically.
+4. Who did it: add nullable `staff_user_id` to `secret_access_log` (reveal / set / clear) and pass the staff id into M6's text/date history writes (`changed_by`). The access log on the device page shows the staff name.
+5. The IT PIN is still required to reveal or set a secret (login + PIN, unchanged M6 rule).
+6. Docs: remove M6's "no dashboard login" accepted-risk text from README / CLAUDE.md; keep the `SECRETS_KEY` notes.
+7. Tests: M6 routes 401 without session; reveal writes the staff id; migration-upgrade test applies 0007 then 0008.
+
+**Affected files:** `server/drizzle/*` (0007 M7 removed, new 0008), `server/src/db/schema.ts`, M6 routes under `server/src/app/api/dashboard/{fields,devices/[id]/fields}/**`, `server/src/lib/custom-fields.ts`, the Fields page and device page, `server/src/lib/queries.ts`, `server/test/*`, `README.md`, `CLAUDE.md`, `plans/ccr-510da39c-6w5qgz/INBOX.md`.

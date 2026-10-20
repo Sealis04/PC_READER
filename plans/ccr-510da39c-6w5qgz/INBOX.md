@@ -20,7 +20,20 @@ See the repo `CLAUDE.md`. In short: bun + Drizzle (no Prisma, no `db:push`; `cd 
 
 ---
 
-## builder-1 — M7 staff login with HRIS (2026-10-20) — CURRENT TASK
+## builder-1 — M7 FIX REQUEST (2026-10-20) — merge M6 into #18 — CURRENT TASK
+
+M6 (#17) is merged into `main`; #18 (M7, branch `claude/gracious-gates-sxedcy`) now conflicts and both add a migration `0007`. Work **on `claude/gracious-gates-sxedcy` itself** (push there; it is #18's head) — or, if your session can only push to its assigned branch, start it from `origin/claude/gracious-gates-sxedcy`, push it, and say so in your summary so the planner can repoint #18.
+
+Do exactly **v2** in [`plans/m7-hris-login/plan.md`](../m7-hris-login/plan.md): merge `origin/main` (merge commit, no rebase/force-push), keep M6's `0007_nostalgic_slayback`, regenerate M7's migration as `0008_*` via `bun run db:generate`, protect every M6 page/route with `requireStaff`/`requireStaffApi`, add `staff_user_id` to `secret_access_log` and staff id to M6 history writes, drop M6's "no login" accepted-risk docs, tests. When this INBOX conflicts, keep both sides' sections.
+
+**Done when:** `bun run lint` and `bun run test` pass, `db:generate` shows no drift, #18 shows no conflicts with `main`. Summary under `### From builder-1 (M7 v2)` below. Do not fire the reviewer.
+
+### From builder-1 (M7 v2)
+(pending)
+
+---
+
+## builder-1 — M7 staff login with HRIS (2026-10-20) — DONE (#18)
 
 Base: `origin/claude/gracious-gates-sxedcy` = `main` (64aef0f, includes #16 branding) + this plan and INBOX. `git fetch origin claude/gracious-gates-sxedcy && git checkout -B <your-assigned-branch> origin/claude/gracious-gates-sxedcy`, push only to your assigned branch, and **open your PR into `main`**. This section overrides the "Branch to work on" steps above.
 
