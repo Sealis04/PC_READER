@@ -37,6 +37,18 @@ Base: `main` (f81eaf7, includes #13). **Open your PR into `main`.** Round 4 (con
 
 ---
 
+## builder-1 — M6 custom fields with secret fields (2026-10-20)
+
+Plan: [`plans/m6-custom-fields/plan.md`](../m6-custom-fields/plan.md) (decided with the owner on 2026-10-20). Base: `main` (branding #16 merged). **Open your PR into `main`.** Implement sections 1–4 of the plan as separate commits, pushing after each.
+
+What the owner wants: IT defines extra fields once for all devices (Text, Date, Secret) on a dashboard Fields page and fills them in per device. Secret values (e.g. local admin password) are **encrypted at rest** with `SECRETS_KEY` from `.env` (AES-256-GCM), hidden by default, and revealing or changing one requires the **current hourly IT PIN**; every reveal/change is logged without the value. Secrets never reach PCs, logs or search. Dashboard only; no agent or contract changes. The Settings page from #16 exists: put the Fields page next to it in the top bar.
+
+Accepted risk (owner decision): the dashboard has no login yet, so anyone who can open it could read the IT PIN; document it in the README as the plan says.
+
+CI runs only after merges into `main`: verify with `bun run lint` and `bun run test` locally and say what you could not verify. Do not fire the reviewer; write a summary under `### From builder-1 (M6)` and stop.
+
+---
+
 ## builder-1 — Agency branding + agency-neutral code (2026-10-20)
 
 Plan: [`plans/branding/plan.md`](../branding/plan.md). Base: `origin/claude/fervent-mendel-9y30q4` (= `main` + PR #15). **Open your PR into `main`, stacked on #15** (say so). Implement sections 1–4 of the plan as separate commits, pushing after each.
