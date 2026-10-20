@@ -31,12 +31,28 @@ cd server && DATABASE_URL=... ENROLLMENT_KEY=... bun run db:migrate && bun run d
 
 See [CLAUDE.md](CLAUDE.md) for layout and conventions.
 
+## Agency name, logo and inventory prefix (Settings)
+
+Every server is set up for one agency on the dashboard's **Settings** page (`/settings`, top-bar link):
+
+- **Agency name** (1-100 characters): shown in the dashboard's top bar and browser tab title, and in the desktop app's window header. Default `PC_READER`.
+- **Logo**: PNG, JPEG or WebP, at most 512 KB (no SVG). Stored in the database and served at `GET /api/branding/logo?v=<version>`; replacing it changes the version, so caches refresh. *Remove logo* goes back to the name only.
+- **Inventory prefix** (2-10 characters, A-Z and 0-9, saved in capitals): default `INV`. Changing it affects **new** numbers only; numbers already issued stay as they are and the per-year counter carries on. A server that already issued `IA-YYYY-NNNNN` numbers before this feature gets the prefix `IA` from the migration, so nothing changes for it until someone edits it.
+
+The desktop app reads the name and logo from the public `GET /api/branding` (`{ "name", "logo_url" }`, no token needed), on launch and whenever its connection opens, and keeps a copy in `config.json`, so the window shows them even when started offline after one successful fetch. The window title and the tray stay "PC_READER", and printed labels carry no agency name.
+
+**Accepted risk:** the dashboard has no login yet, so anyone who can open `/settings` can change the name, logo and prefix (like the IT PIN page, it must stay on the agency network). Staff login is planned.
+
+API: `GET /api/dashboard/settings`; `POST /api/dashboard/settings` with `{ "agency_name"?, "inventory_prefix"? }`; `POST /api/dashboard/settings/logo` (the image as the request body with its `Content-Type`); `DELETE /api/dashboard/settings/logo`. Errors: 400 bad input, 413 logo too big, 415 wrong type.
+
+`DISPLAY_TIMEZONE` (default `Asia/Manila`) sets the time zone of the dashboard, the inventory year and the IT PIN hour; set it to your own zone in `.env`.
+
 ## Inventory numbers, statuses and labels (Milestone 4)
 
 Devices (not components yet) get an inventory number, a status and a location from the device page.
 
-- **Format:** generated numbers are `IA-YYYY-NNNNN` (e.g. `IA-2026-00123`): the year in `DISPLAY_TIMEZONE`, then a 5-digit counter that restarts each year. Staff can instead type an existing sticker number (trimmed, at most 50 characters, unique ignoring case).
-- **Counter:** `inventory_counters` holds the highest value issued per year and only goes up. "Assign next number" bumps it inside the transaction (row-locked), so two staff cannot get the same number; a typed number that matches the pattern raises the counter to at least its value. Clearing or changing a number never lowers the counter, so a number is not issued twice. Year 2026 stops at `IA-2026-99999`.
+- **Format:** generated numbers are `PREFIX-YYYY-NNNNN` (e.g. `INV-2026-00123`; the prefix is set on the Settings page, see below): the year in `DISPLAY_TIMEZONE`, then a 5-digit counter that restarts each year. Staff can instead type an existing sticker number (trimmed, at most 50 characters, unique ignoring case).
+- **Counter:** `inventory_counters` holds the highest value issued per year and only goes up. "Assign next number" bumps it inside the transaction (row-locked), so two staff cannot get the same number; a typed number that matches the pattern raises the counter to at least its value. Clearing or changing a number never lowers the counter, so a number is not issued twice. Year 2026 stops at `PREFIX-2026-99999`. A typed number counts as generated only when it uses the *current* prefix.
 - **Statuses:** In use, Spare, Under repair, For disposal, Disposed, Lost. Changes are one device at a time with an optional reason.
 - **History:** `status_history` (status) and `device_field_history` (number, location) are append-only; the device page merges them with assignment changes into one timeline. `changed_by` is null until the dashboard has staff login.
 - **API:** `POST /api/dashboard/devices/{id}/inventory` with `{ "action": "assign_next" | "set_number" | "clear_number" | "set_status" | "set_location", "value"?, "status"?, "reason"? }`. Errors: 400 bad input, 404 unknown device, 409 number taken or device already numbered.

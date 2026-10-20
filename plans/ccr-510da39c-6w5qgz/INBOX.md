@@ -45,6 +45,21 @@ The repo is going public: the owner wants each server to set its agency **name**
 
 CI now runs only after merges into `main` (Actions minutes ran out); verify with `bun run lint` and `bun run test` locally and say what you could not verify. Do not fire the reviewer; write a summary under `### From builder-1 (branding)` and stop.
 
+### From builder-1 (branding)
+
+Four commits on `claude/cool-volta-4itsuv`, PR into `main` **stacked on #15** (it contains #15's commits; merge #15 first or merge this PR to get both).
+
+1. **Server.** `app_settings` single-row table, migration `0006_sticky_mercury` (the IA upgrade rule is a plain `INSERT ... SELECT` appended to the generated DDL; it sets `IA` when an `IA-YYYY-NNNNN` number or an `inventory_counters` row exists, else `INV`; the drizzle snapshot is untouched, so no drift). `lib/settings.ts` (validation, logo type/size/magic-byte checks), prefix-aware `lib/inventory.ts` (`parseGeneratedNumber(value, prefix)`, `formatInventoryNumber(prefix, year, n)`), `/settings` page, `GET/POST /api/dashboard/settings`, `POST/DELETE .../settings/logo`, public `GET /api/branding` and `/api/branding/logo` (versioned URL is cached as immutable, anything else must revalidate). Layout shows logo + name and sets the tab title; the layout falls back to defaults if the DB cannot be read.
+2. **Contracts.** `agent-api/branding.response.schema.json`, fixtures `branding/{default,with-logo}.json`, validator + type; the server test checks the real endpoint against the schema and the Go test checks the fixtures against the Go type.
+3. **Agent/desktop.** `api.Client.Branding` (no token, no retry) and `BrandingLogo` (own logo path only, PNG/JPEG/WebP, max 512 KB, returns a data URL), `config.Branding` cache in `config.json`, `Service.RefreshBranding/CachedBranding`, bound `Branding()` / `RefreshBranding()`, shell refreshes on launch and when the connection becomes `connected` and emits `branding`; the window header draws logo + name. `CheckConnection` also fetches branding so setup/signup already show the agency. Neutral IDs: wails company/copyright "PC_READER", single-instance id `pc-reader.desktop`, LaunchAgent `io.github.sealis04.pcreader`; the old `ph.gov.intramuros.pcreader.plist` is removed whenever the new one is written (and by `Disable`). The Windows Run value stays `PC_READER`.
+4. **Neutral code and docs.** README (new "Agency name, logo and inventory prefix" section, accepted-risk note, `DISPLAY_TIMEZONE` is configurable), agent README, CLAUDE.md, `.env.example`. The only agency string left in code is the `LegacyAgentLabel` constant (needed to clean up old installs). `Asia/Manila` remains only as the default `DISPLAY_TIMEZONE`. I also removed a 16 MB Linux binary `agent/pcreader` that had been committed by accident (M5 round 2) and added it to `.gitignore`.
+
+**Verified locally:** `bun run lint` and `bun run test` (server 136 incl. 18 new settings tests, contracts 42, all Go packages), `next build`, and a live `next start` smoke test (settings POST, logo upload, branding endpoint, tab title, logo header).
+
+**Not verified:** the desktop window itself (Wails frontend needs the generated `wailsjs` bindings and a Windows/macOS build; only `node --check` on `main.js` and `GOOS=windows go vet` on the desktop module ran), and the desktop CI builds (CI does not run on PRs; start the **agent** workflow by hand on this branch if minutes allow). No visual check of the dashboard header/Settings page in a browser.
+
+**Notes for the reviewer / planner:** the logo is also stored as a base64 data URL in each PC's `config.json` (up to ~700 KB). Settings has no login (documented as accepted risk). A prefix change keeps the per-year counter, so `INV-2026-00007` can follow `IA-2026-00006`. Typed numbers in the *old* pattern no longer raise the counter after a prefix change (by design: only the current pattern counts).
+
 ---
 
 ## M5 round 4 — DONE by the planner (2026-10-20), approval-code design
