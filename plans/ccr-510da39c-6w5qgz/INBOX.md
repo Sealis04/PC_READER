@@ -20,6 +20,21 @@ See the repo `CLAUDE.md`. In short: bun + Drizzle (no Prisma, no `db:push`; `cd 
 
 ---
 
+## builder-1 — FIX REQUEST (2026-10-20, M5 round 4) — confirm-details prompt without the PIN
+
+Base: PR #13 (`claude/cool-volta-35mr05`, not merged yet). **Open your PR into `main`, stacked on #13** (say so; merge #13 first). User decision, overrides the round-2 addendum on this one point:
+
+**When staff pressed "Ask user to confirm details", the user can save once without the IT PIN, but cannot change the employee ID in that save.**
+
+- **Server (`PUT /api/agent/user`):** a request without `it_pin` is accepted only if the device has a `prompt_details_update` request in `delivered` state **and** the `employee_id` equals the current open assignment's user's employee ID. Then it updates that user (no reassignment), marks the request `done`, and returns 200. A different `employee_id` without a PIN → `403` (`error: "pin_required"`, message "Changing the employee ID needs the IT PIN."). No open prompt and no PIN → `403 pin_required` as today (keep existing wrong_pin/429 behaviour when a PIN is sent). With a valid PIN everything works as now and also completes an open prompt. Record the save in `settings_unlock_attempts` with method `update_details` and a marker that it was a prompt confirmation (e.g. method `confirm_details`, success true), so the device page shows it.
+- **Desktop:** when Update my details is opened by the prompt, hide the PIN field, show the employee ID read-only with the note "Changing the employee ID needs IT.", and keep the message "IT asked you to confirm these details." (drop "IT needs to enter the PIN to save"). If IT is unlocked (PIN session), the employee ID is editable as usual. After a successful save the prompt is gone; opening Update my details normally still needs the PIN.
+- **Tests:** server — prompt open + same employee ID without PIN → 200 and request done; prompt open + different ID without PIN → 403; no prompt without PIN → 403; second save without PIN after the first → 403. Go bound tests for the prompt flow.
+- **Docs:** README / `agent/README.md` / `CLAUDE.md` IT PIN line: the one exception.
+
+**Done when:** `bun run lint` and `bun run test` pass and CI (desktop builds included) is green. Write a `#### Round 4` summary. Do not fire the reviewer.
+
+---
+
 ## builder-1 — FIX REQUEST (2026-10-20, M5 round 3) — re-registration dead end
 
 Base: `main` (M2–M5 merged via #11) + the navbar fix on `claude/fervent-mendel-9y30q4` (PR #12). **Open your PR into `main`** (the feature branch is finished).
