@@ -10,6 +10,8 @@ Internal device-inventory tool. A Go reporter CLI on agency Windows/Mac PCs send
 
 ## Commands (run from repo root unless noted)
 
+CI (`.github/workflows/agent.yml`, `server.yml`) runs only on pushes to `main` (i.e. merges) and by hand (`workflow_dispatch`), not on PRs, to save Actions minutes (macOS counts 10x). Before opening a PR, run `bun run lint` and `bun run test` locally; to build the desktop apps for a PR branch, start the **agent** workflow by hand on that branch.
+
 - `bun install` — install all workspaces
 - `bun run lint` — `tsc --noEmit` + ESLint for every workspace, then `go vet` + gofmt for `agent/`
 - `bun run test` — contract fixture tests, server tests (needs Postgres; `DATABASE_URL` defaults to `postgres://postgres@127.0.0.1:5432/pcreader_test`), then `go test -count=1 ./...` in `agent/`

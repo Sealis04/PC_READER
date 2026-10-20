@@ -1,9 +1,10 @@
 name: agent
 
+# Runs only when a PR is merged into main (to save Actions minutes; macOS minutes count 10x).
+# To check a PR branch before merging, start it by hand: Actions -> agent -> Run workflow -> pick the branch.
 on:
   push:
-    paths: ["agent/**", "contracts/**", "server/**", ".github/workflows/agent.yml"]
-  pull_request:
+    branches: [main]
     paths: ["agent/**", "contracts/**", "server/**", ".github/workflows/agent.yml"]
   workflow_dispatch:
 

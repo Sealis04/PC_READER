@@ -19,7 +19,7 @@ Builds are unsigned:
 
 ## Desktop app
 
-Download the `pcreader-desktop` artifact from the latest successful **agent** workflow run (Actions → agent → run → Artifacts): `PC_READER-setup.exe` (Windows installer), `pcreader-desktop.exe` (plain Windows exe, for testing) and `pcreader-desktop-macos.zip` (universal `.app`, Intel and Apple Silicon).
+Download the `pcreader-desktop` artifact from the latest successful **agent** workflow run (Actions → agent → run → Artifacts). CI runs only after a merge into `main`; to build a PR branch, start it by hand (Actions → agent → *Run workflow* → pick the branch). The artifact contains: `PC_READER-setup.exe` (Windows installer), `pcreader-desktop.exe` (plain Windows exe, for testing) and `pcreader-desktop-macos.zip` (universal `.app`, Intel and Apple Silicon).
 
 ### Install on Windows
 

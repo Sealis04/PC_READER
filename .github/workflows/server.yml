@@ -1,10 +1,12 @@
 name: server
 
+# Runs only when a PR is merged into main (to save Actions minutes). To check a PR branch before
+# merging, start it by hand: Actions -> server -> Run workflow -> pick the branch.
 on:
   push:
+    branches: [main]
     paths: ["contracts/**", "server/**", "package.json", "bun.lock", ".github/workflows/server.yml"]
-  pull_request:
-    paths: ["contracts/**", "server/**", "package.json", "bun.lock", ".github/workflows/server.yml"]
+  workflow_dispatch:
 
 jobs:
   test:
