@@ -22,6 +22,7 @@ IT no longer sets a PIN on each PC. The dashboard shows one current **IT PIN** f
 | IT setup | No longer asks IT to choose a PIN. Saves the enrollment-key hash instead. Existing local PIN hashes in `config.json` are dropped on upgrade; a PC without an enrollment-key hash (CLI-registered or M2/M3) gets it the next time IT runs setup or re-registers, and until then offline unlock is unavailable (show a clear message) |
 | Unlock log | Server records each unlock attempt: device, time, success/failure, method (`hourly_pin`). Device page shows recent attempts. Offline enrollment-key unlocks are written to the PC's local log and uploaded on the next Send logs |
 | Accepted risk | No dashboard login yet: anyone on the LAN who opens the dashboard can read the current PIN. Documented in the README; fixed when staff login arrives |
+| Details need the PIN | (added 2026-10-20) First-time signup and Update my details also need the hourly IT PIN, enforced by the server (`register`, `PUT /user`). Exception: confirming details after a dashboard "Ask user to confirm details" request needs no PIN. No offline fallback for these forms |
 | Builders | Builder 1 only; no reviewer routine. Stacks on PR #8 (M4) |
 
 ## Work breakdown (Builder 1, in this order, separate commits)

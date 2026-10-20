@@ -20,6 +20,38 @@ See the repo `CLAUDE.md`. In short: bun + Drizzle (no Prisma, no `db:push`; `cd 
 
 ---
 
+## builder-1 — FIX REQUEST (2026-10-20, M5 round 2)
+
+Base: PR #9 (`claude/cool-volta-bufmo9`, commit 9188559, CI green). New user decision: **submitting user details also needs the hourly IT PIN.**
+
+**Which submits:**
+1. **First-time signup** (desktop signup form, and `pcreader register` in the CLI).
+2. **Update my details** (desktop form, `PUT /api/agent/user`).
+3. **Exception:** when staff pressed "Ask user to confirm details" (`prompt_details_update`), the user confirms/saves **without** a PIN. Server rule: `PUT /user` without a PIN is accepted only while that device has a `prompt_details_update` request in `delivered` state; the save then completes that request.
+
+**Enforced on the server, not only in the UI:**
+- Contracts: add `it_pin` (6 digits) to `register.request` (required) and `user.request` (required unless the prompt exception applies; make it optional in the schema and enforce in the handler). Update fixtures and contract tests; note the change here as the repo rules require.
+- `POST /register`: check the enrollment key first (existing 403), then the hourly PIN via `lib/it-pin.ts` → `403 wrong_pin`. There is no device yet, so rate-limit wrong PINs per client IP (same 5 / minute → `429`), and record attempts with `device_id` null and method `register`.
+- `PUT /user`: wrong or missing PIN → `403 wrong_pin` (unless the prompt exception), rate limit per device, attempts recorded with method `update_details`.
+- Device page attempts list shows the method.
+
+**Agent / desktop:**
+- Signup form: "IT PIN" field (shown on the PC_READER dashboard) next to Submit; inline error on a wrong PIN; the enrollment key is still asked in IT setup as today.
+- Update my details: "IT PIN" field before Save; hidden when the form was opened by the dashboard prompt.
+- Shared 5-tries / 60 s lockout with Settings.
+- **Offline:** no enrollment-key fallback for these forms. If the server can't be reached: "Can't reach the server. Try again when this computer is online." (Settings keeps its enrollment-key fallback.)
+- CLI: `pcreader register --pin 123456` (required); `pcreader` has no update-details command, so nothing else changes there. Update the end-to-end tests (`PCREADER_E2E_*`) to get the current PIN from the test server or the DB helper.
+
+**Tests:** server tests for register/user with right, wrong, missing PIN, the prompt exception (with and without a delivered request), rate limits and attempt rows; Go tests for the bound methods and CLI flag.
+
+**Docs:** README + `agent/README.md`: IT needs the dashboard's current PIN at signup and when a user changes their details.
+
+**Done when:** `bun run lint` and `bun run test` pass and CI (desktop builds included) is green.
+
+**Branching:** reset your assigned branch onto `origin/claude/fervent-mendel-9y30q4` (= #9 plus this request), implement, push, and **open a PR into `ccr-510da39c-6w5qgz`** that supersedes #9 (still stacked on #8; say so). Add a `#### Round 2` part to your M5 summary below. Do not fire the reviewer.
+
+---
+
 ## builder-1 — M5 (2026-10-19)
 
 Implement sections 1–4 of `plans/m5-hourly-it-pin/plan.md`, in order, as separate commits:
