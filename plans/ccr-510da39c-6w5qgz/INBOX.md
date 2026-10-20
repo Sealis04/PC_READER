@@ -3,8 +3,8 @@
 **Repository:** `Sealis04/PC_READER` — if your working directory is another repository, switch to a checkout of this one (`git remote -v`).
 **Feature branch:** `ccr-510da39c-6w5qgz`
 **Active builders:** builder-1 only
-**Reviewer:** not used for M5. **Do not fire the reviewer routine.** When done, open your PR and stop; the planner checks CI and reports to the user.
-**Milestone:** M5 — hourly IT PIN from the dashboard. Plan: [`plans/m5-hourly-it-pin/plan.md`](../m5-hourly-it-pin/plan.md). History: `plans/m{1..4}-*/inbox-log.md`.
+**Reviewer:** not used for M5–M7. **Do not fire the reviewer routine.** When done, open your PR and stop; the planner checks CI and reports to the user.
+**Milestone:** M7 — staff login with HRIS. Plan: [`plans/m7-hris-login/plan.md`](../m7-hris-login/plan.md). (Earlier: M5 [`plans/m5-hourly-it-pin/plan.md`](../m5-hourly-it-pin/plan.md).) History: `plans/m{1..4}-*/inbox-log.md`.
 
 ## Branch to work on (overrides the routine prompts)
 
@@ -17,6 +17,28 @@ Your session is assigned its own branch (e.g. `claude/<name>`) and must not push
 ## Repo conventions
 
 See the repo `CLAUDE.md`. In short: bun + Drizzle (no Prisma, no `db:push`; `cd server && bun run db:generate` after schema changes, `bun run db:migrate` to apply); Go tests with `-count=1`; `bun run lint` and `bun run test` from the root run everything (server tests need Postgres, `DATABASE_URL` defaults to `postgres://postgres@127.0.0.1:5432/pcreader_test`). The desktop app is its own Go module in `agent/desktop/` (Wails v2); shared logic lives in `agent/internal/` and is unit-tested on Linux.
+
+---
+
+## builder-1 — M7 staff login with HRIS (2026-10-20) — CURRENT TASK
+
+Base: `origin/claude/gracious-gates-sxedcy` = `main` (64aef0f, includes #16 branding) + this plan and INBOX. `git fetch origin claude/gracious-gates-sxedcy && git checkout -B <your-assigned-branch> origin/claude/gracious-gates-sxedcy`, push only to your assigned branch, and **open your PR into `main`**. This section overrides the "Branch to work on" steps above.
+
+Full plan: [`plans/m7-hris-login/plan.md`](../m7-hris-login/plan.md) — read it all; decisions there are final. Summary:
+
+- Dashboard login with **Better Auth** on the PC_READER server, **HRIS as the OIDC provider** (`genericOAuth`, `providerId: "hris"`, discovery `${HRIS_URL}/.well-known/openid-configuration`, PKCE, scopes `openid profile email account_level`). HRIS needs no code changes; its contract is `docs/oauth-integration.md` in `Sealis04/hris` (read-only for you).
+- Only `hris:user_level` in `HRIS_ALLOWED_USER_LEVELS` (default `IT`) gets a session; denied sign-ins are logged and get a clear message.
+- Whole dashboard protected (pages + `/api/dashboard/*`) via `proxy.ts` + server-side `requireStaff` helpers; `/api/agent/*`, `/api/branding*`, `/api/auth/*`, `/login` stay open. Fail closed (503 / "Login is not configured") when auth env is missing.
+- Better Auth tables prefixed `staff_` (don't touch `users`); append-only `staff_events`.
+- Fill `changed_by` / `requested_by` / dashboard `assigned_by` with the staff id; history shows the staff name.
+- Tests incl. a sweep that every dashboard route returns 401 without a session. Docs: README, `.env.example`, `docker-compose.yml`, `CLAUDE.md`, spec line.
+
+Work in the plan's order with separate commits (schema+core, protection, who-did-it, tests, docs). Only you are building; no shared-file split needed. No agent / desktop / contracts changes.
+
+**Done when:** `bun run lint` and `bun run test` pass locally. Write a short summary under `### From builder-1` below (what was done, how to register the client in HRIS, anything the user must test by hand). Do not fire the reviewer.
+
+### From builder-1
+(pending)
 
 ---
 

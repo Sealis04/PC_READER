@@ -1,4 +1,6 @@
-# builder-1 tasks — Milestone 5 (hourly IT PIN from the dashboard)
+> **Current task (2026-10-20): `## builder-1 — M7 staff login with HRIS` in `../INBOX.md`.** Base on `origin/claude/gracious-gates-sxedcy` (main + plan), PR into `main`. Everything below is from M5 and is done.
+
+# builder-1 tasks — current: Milestone 7 (staff login with HRIS)
 
 **Current task: `## builder-1 — M5` in `../INBOX.md`.** Base your work on `origin/claude/fervent-mendel-9y30q4` (PR #8 / M4 plus the M5 plan).
 
