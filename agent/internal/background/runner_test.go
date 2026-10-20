@@ -152,6 +152,7 @@ type rig struct {
 	done   chan error
 	status chan Status
 	prompt atomic.Int32
+	asked  atomic.Pointer[payload.PendingRequest]
 	snap   atomic.Pointer[payload.NetworkSnapshot]
 	fp     atomic.Value
 }
@@ -194,7 +195,7 @@ func startRig(t *testing.T) *rig {
 			c.IdleTimeout = 10 * time.Second
 		},
 		OnStatus: func(s Status) { g.status <- s },
-		OnPrompt: func() { g.prompt.Add(1) },
+		OnPrompt: func(req payload.PendingRequest) { g.asked.Store(&req); g.prompt.Add(1) },
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	g.cancel = cancel
@@ -285,15 +286,20 @@ func TestSendLogsUploadsAndClearsTheConfirmedEntries(t *testing.T) {
 	}
 }
 
-func TestPromptDetailsRequestCallsBackAndCompletes(t *testing.T) {
+func TestPromptDetailsRequestPassesTheApprovalAndIsNotCompleted(t *testing.T) {
 	g := startRig(t)
 	g.waitStatus(t, StatusConnected)
-	g.f.request("req-prompt", "prompt_details_update")
-	if c := g.f.waitComplete(t, "req-prompt"); c.Result != "done" {
-		t.Fatalf("complete = %+v", c)
+	const approval = "q3Vb0xZK9fT2mN7pR4sW1yC8eH5jL6uA0dG3iO9kX2w"
+	g.f.push <- fmt.Sprintf("event: request\ndata: {\"id\":\"req-prompt\",\"type\":\"prompt_details_update\",\"created_at\":\"2026-10-19T08:00:00Z\",\"approval\":%q}\n\n", approval)
+	waitFor(t, "the prompt", func() bool { return g.prompt.Load() == 1 })
+	if got := g.asked.Load(); got.ID != "req-prompt" || got.Approval != approval {
+		t.Fatalf("OnPrompt got %+v", got)
 	}
-	if g.prompt.Load() != 1 {
-		t.Fatalf("OnPrompt called %d times", g.prompt.Load())
+	// The user's save closes the request on the server; the agent must not, or the code would die.
+	g.f.request("req-scan", "scan_now")
+	g.f.waitComplete(t, "req-scan")
+	if c, ok := g.f.complete("req-prompt"); ok {
+		t.Fatalf("prompt was completed by the agent: %+v", c)
 	}
 }
 

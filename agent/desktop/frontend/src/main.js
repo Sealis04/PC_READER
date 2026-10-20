@@ -6,6 +6,7 @@ import {
   MyComputer,
   ReportNow,
   UpdateUser,
+  ConfirmDetails,
   StartReregistration,
   UnlockITSettings,
   UnlockMode,
@@ -138,14 +139,17 @@ async function refreshConnection() {
   connection.dataset.status = c.status;
 }
 
-// IT asked the user to confirm their details: open "Update my details" with a message.
+// IT asked the user to confirm their details: open "Update my details" with a message. With IT's
+// approval (p.confirm) the user saves once without the PIN and cannot change the employee ID.
 async function checkPrompt() {
   const p = await TakePrompt();
   if (!p.show) return;
   const st = await State();
   if (st.screen !== "home") return;
   const h = await MyComputer();
-  if (h.ok) editUser(h, p.message);
+  if (!h.ok) return;
+  if (p.confirm) confirmUser(h, p.message);
+  else editUser(h, p.message);
 }
 
 EventsOn("connection", refreshConnection);
@@ -551,6 +555,43 @@ async function editUser(h, notice) {
     if (res.needsReregistration) banner.append(reregisterButton());
   });
   show(el("h1", {}, "Update my details"), el("div", { class: "card" }, banner, form));
+}
+
+// The form opened by IT's "Ask user to confirm details": no PIN (IT's approval came with the request),
+// one save, and the employee ID stays as it is. If IT is unlocked with the PIN, the normal form is used.
+async function confirmUser(h, notice) {
+  const sv = await Session();
+  if (sv.hasPin) return editUser(h, notice);
+  const banner = el("div", {}, message("ok", notice));
+  const form = el(
+    "form",
+    { novalidate: true },
+    ...userFields(h.assignedUser),
+    el("p", { class: "muted" }, "Changing the employee ID needs IT."),
+    el(
+      "div",
+      { class: "actions" },
+      el("button", { type: "button", onclick: () => home() }, "Cancel"),
+      el("button", { type: "submit", class: "primary" }, "Save"),
+    ),
+  );
+  const employeeId = form.elements.employeeId;
+  employeeId.readOnly = true;
+  employeeId.setAttribute("aria-readonly", "true");
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const btn = form.querySelector("button[type=submit]");
+    busy(btn, "Saving…", true);
+    const res = await ConfirmDetails(readUser(form));
+    busy(btn, "", false);
+    showFieldErrors(form, res.fieldErrors ?? {});
+    if (res.ok) return home(res.message);
+    // The approval was used, expired or refused: from here IT needs to enter the PIN.
+    if (res.needsPin) return editUser(h, res.message);
+    banner.replaceChildren(message("error", res.message));
+    if (res.needsReregistration) banner.append(reregisterButton());
+  });
+  show(el("h1", {}, "Confirm my details"), el("div", { class: "card" }, banner, form));
 }
 
 start();

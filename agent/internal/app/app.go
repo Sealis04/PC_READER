@@ -277,6 +277,20 @@ func (s *Service) Report(ctx context.Context, scanType, pin string) (scanID stri
 // UpdateUser sends corrected details. A different employee ID hands the computer to that
 // person on the server. The server needs the current IT PIN. The stored details are saved locally.
 func (s *Service) UpdateUser(ctx context.Context, u payload.UserDetails, pin string) (*payload.UserDetails, error) {
+	return s.saveUser(func(c *api.Client, token string) (*payload.UserDetails, error) {
+		return c.UpdateUser(ctx, token, trimUser(u), strings.TrimSpace(pin))
+	})
+}
+
+// ConfirmUser saves the details with the approval code of IT's "confirm details" request instead of
+// the PIN. The server accepts it once, within 24 hours, and only with the same employee ID.
+func (s *Service) ConfirmUser(ctx context.Context, u payload.UserDetails, confirm payload.ConfirmApproval) (*payload.UserDetails, error) {
+	return s.saveUser(func(c *api.Client, token string) (*payload.UserDetails, error) {
+		return c.ConfirmUser(ctx, token, trimUser(u), confirm)
+	})
+}
+
+func (s *Service) saveUser(send func(*api.Client, string) (*payload.UserDetails, error)) (*payload.UserDetails, error) {
 	cfg, err := config.Load()
 	if err != nil {
 		return nil, err
@@ -288,7 +302,7 @@ func (s *Service) UpdateUser(ctx context.Context, u payload.UserDetails, pin str
 	if err != nil {
 		return nil, err
 	}
-	stored, err := s.client(cfg.ServerURL).UpdateUser(ctx, token, trimUser(u), strings.TrimSpace(pin))
+	stored, err := send(s.client(cfg.ServerURL), token)
 	if err != nil {
 		s.logf("error", "update", "Updating details failed")
 		return nil, err

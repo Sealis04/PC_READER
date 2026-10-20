@@ -150,8 +150,15 @@ export interface UserDetails {
   phone: string | null;
 }
 
+// IT's approval for a details save: the hourly PIN, or the approval code of a "confirm details" request.
+export interface ConfirmApproval {
+  request_id: string;
+  approval: string;
+}
+
 export interface UserRequest extends UserDetails {
-  it_pin: string;
+  it_pin?: string;
+  confirm?: ConfirmApproval;
 }
 
 export interface RegisterRequest {
@@ -212,6 +219,8 @@ export interface PendingRequest {
   id: string;
   type: RequestType;
   created_at: string;
+  // prompt_details_update only.
+  approval?: string;
 }
 
 export type EventsMessage =

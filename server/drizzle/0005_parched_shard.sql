@@ -1,0 +1,1 @@
+ALTER TYPE "public"."unlock_method" ADD VALUE 'confirm_details';

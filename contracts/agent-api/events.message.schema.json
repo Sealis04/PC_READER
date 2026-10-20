@@ -31,7 +31,12 @@
           "properties": {
             "id": { "type": "string", "format": "uuid" },
             "type": { "enum": ["scan_now", "send_logs", "prompt_details_update"] },
-            "created_at": { "type": "string", "format": "date-time" }
+            "created_at": { "type": "string", "format": "date-time" },
+            "approval": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{43}$",
+              "description": "Only on prompt_details_update: IT's one-time approval code. Sent back in user.request's confirm, it lets the user save their details once without the IT PIN (same employee ID, within 24 hours)."
+            }
           }
         }
       }

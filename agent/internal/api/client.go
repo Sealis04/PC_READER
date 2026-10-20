@@ -167,8 +167,18 @@ func (c *Client) UploadScan(ctx context.Context, token string, req payload.ScanR
 // UpdateUser sends the user's corrected details (or a new person's, which reassigns the
 // computer) with the current IT PIN, and returns the details as stored. A wrong PIN is a 403 *Error.
 func (c *Client) UpdateUser(ctx context.Context, token string, u payload.UserDetails, pin string) (*payload.UserDetails, error) {
+	return c.putUser(ctx, token, payload.UserRequest{UserDetails: u, ITPIN: pin})
+}
+
+// ConfirmUser saves the user's details with the approval code of IT's "confirm details" request
+// instead of the PIN (same employee ID only). A used, expired or wrong code is a 403 *Error.
+func (c *Client) ConfirmUser(ctx context.Context, token string, u payload.UserDetails, confirm payload.ConfirmApproval) (*payload.UserDetails, error) {
+	return c.putUser(ctx, token, payload.UserRequest{UserDetails: u, Confirm: &confirm})
+}
+
+func (c *Client) putUser(ctx context.Context, token string, body payload.UserRequest) (*payload.UserDetails, error) {
 	var out payload.UserDetails
-	if _, err := c.do(ctx, http.MethodPut, "/api/agent/user", token, payload.UserRequest{UserDetails: u, ITPIN: pin}, &out, http.StatusOK); err != nil {
+	if _, err := c.do(ctx, http.MethodPut, "/api/agent/user", token, body, &out, http.StatusOK); err != nil {
 		return nil, err
 	}
 	return &out, nil

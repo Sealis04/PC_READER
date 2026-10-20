@@ -67,6 +67,15 @@ describe("user fixtures", () => {
     }
   });
 
+  test("user.request takes a confirm-details approval instead of the PIN", () => {
+    const c = load("user/confirm-details.json");
+    expect(validateUserRequest({ ...c, confirm: { ...c.confirm, approval: "short" } })).toBe(false);
+    expect(validateUserRequest({ ...c, confirm: { ...c.confirm, request_id: "not-a-uuid" } })).toBe(false);
+    expect(validateUserRequest({ ...c, confirm: { request_id: c.confirm.request_id } })).toBe(false);
+    const { confirm: _, ...neither } = c;
+    expect(validateUserRequest(neither)).toBe(false);
+  });
+
   test("user.request needs the six detail fields and no policy flag", () => {
     const u = load("user/windows-desktop.json");
     expect(validateUserRequest({ ...u, policy_acknowledged: true })).toBe(false);

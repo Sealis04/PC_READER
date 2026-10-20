@@ -34,6 +34,9 @@ type fake struct {
 	pin          string // the current IT PIN the fake server accepts
 	unlockStatus int    // overrides the settings-unlock reply (e.g. 500) when set
 	unlockCalls  int
+	confirmID    string // the open "confirm details" request and its approval code
+	approval     string
+	confirmUsed  bool
 }
 
 func setup(t *testing.T) (*App, *fake) {
@@ -96,6 +99,22 @@ func setup(t *testing.T) (*App, *fake) {
 			var u payload.UserRequest
 			_ = json.NewDecoder(r.Body).Decode(&u)
 			f.userCalls++
+			if u.Confirm != nil {
+				// Like the server: the open request's code, once, and no new employee ID.
+				switch {
+				case u.Confirm.RequestID != f.confirmID || u.Confirm.Approval != f.approval || f.confirmUsed:
+					w.WriteHeader(403)
+					_, _ = w.Write([]byte(`{"error":"approval_invalid","message":"no longer valid"}`))
+				case u.EmployeeID != "EMP-1":
+					w.WriteHeader(403)
+					_, _ = w.Write([]byte(`{"error":"pin_required","message":"Changing the employee ID needs the IT PIN."}`))
+				default:
+					f.confirmUsed = true
+					f.updates = append(f.updates, u.UserDetails)
+					_ = json.NewEncoder(w).Encode(u.UserDetails)
+				}
+				return
+			}
 			if u.ITPIN != f.pin {
 				w.WriteHeader(403)
 				_, _ = w.Write([]byte(`{"error":"wrong_pin","message":"That PIN is not the current IT PIN"}`))
@@ -819,14 +838,84 @@ func TestConnectionStatusAndDetailsPromptState(t *testing.T) {
 	if p := a.TakePrompt(); p.Show {
 		t.Fatalf("prompt without a request: %+v", p)
 	}
-	a.RaisePrompt()
-	a.RaisePrompt() // twice before the window looked still shows once
+	a.RaisePrompt("req-1", testApproval)
+	a.RaisePrompt("req-1", testApproval) // twice before the window looked still shows once
 	p := a.TakePrompt()
-	if !p.Show || !strings.Contains(p.Message, "IT asked") {
+	if !p.Show || !p.Confirm || !strings.Contains(p.Message, "IT asked") || strings.Contains(p.Message, "PIN") {
 		t.Fatalf("prompt = %+v", p)
 	}
 	if again := a.TakePrompt(); again.Show {
 		t.Fatalf("prompt shown twice: %+v", again)
+	}
+
+	// An older server sends no approval: the prompt still shows, and the PIN is needed.
+	b, _ := setup(t)
+	b.RaisePrompt("req-2", "")
+	if p := b.TakePrompt(); !p.Show || p.Confirm || !strings.Contains(p.Message, "PIN") {
+		t.Fatalf("prompt without approval = %+v", p)
+	}
+}
+
+const testApproval = "q3Vb0xZK9fT2mN7pR4sW1yC8eH5jL6uA0dG3iO9kX2w"
+
+// IT pressed "Ask user to confirm details": the user saves once without the PIN, same employee ID.
+func TestConfirmDetailsSavesOnceWithoutThePin(t *testing.T) {
+	a, f := setup(t)
+	register(t, a, f)
+	f.confirmID, f.approval = "req-1", testApproval
+	a.RaisePrompt("req-1", testApproval)
+
+	upd := form()
+	upd.Department = "Budget"
+	if res := a.ConfirmDetails(upd); !res.OK {
+		t.Fatalf("confirm: %+v", res)
+	}
+	if len(f.updates) != 1 || f.updates[0].Department != "Budget" {
+		t.Fatalf("updates = %+v", f.updates)
+	}
+	if s := a.Session(); s.Unlocked {
+		t.Fatalf("a confirmation must not unlock the app for IT: %+v", s)
+	}
+	// The code is used up: a second save needs the PIN, and does not reach the server.
+	calls := f.userCalls
+	if res := a.ConfirmDetails(upd); res.OK || !res.NeedsPin || f.userCalls != calls {
+		t.Fatalf("second confirm: %+v (calls %d -> %d)", res, calls, f.userCalls)
+	}
+}
+
+func TestConfirmDetailsKeepsTheEmployeeID(t *testing.T) {
+	a, f := setup(t)
+	register(t, a, f)
+	f.confirmID, f.approval = "req-1", testApproval
+	a.RaisePrompt("req-1", testApproval)
+
+	other := form()
+	other.EmployeeID = "EMP-2"
+	calls := f.userCalls
+	if res := a.ConfirmDetails(other); res.OK || res.FieldErrors["employeeId"] == "" || f.userCalls != calls {
+		t.Fatalf("changed employee ID: %+v", res)
+	}
+	// The approval is still there for a correct save.
+	if res := a.ConfirmDetails(form()); !res.OK {
+		t.Fatalf("confirm after fixing the ID: %+v", res)
+	}
+}
+
+func TestConfirmDetailsRefusedByTheServerFallsBackToThePin(t *testing.T) {
+	a, f := setup(t)
+	register(t, a, f)
+	f.confirmID, f.approval = "req-1", testApproval
+	a.RaisePrompt("req-1", testApproval)
+	f.confirmUsed = true // e.g. expired or already used on the server
+	if res := a.ConfirmDetails(form()); res.OK || !res.NeedsPin || !strings.Contains(res.Message, "PIN") {
+		t.Fatalf("refused confirm: %+v", res)
+	}
+	// Forgotten: the window asks for the PIN from now on.
+	if res := a.ConfirmDetails(form()); res.OK || !res.NeedsPin {
+		t.Fatalf("after refusal: %+v", res)
+	}
+	if res := a.UpdateUser(form(), testPin); !res.OK {
+		t.Fatalf("PIN save still works: %+v", res)
 	}
 }
 
@@ -955,15 +1044,29 @@ func TestUpdateUserNeedsThePinTypedOrFromTheSession(t *testing.T) {
 	}
 }
 
-func TestDashboardPromptDoesNotSkipThePin(t *testing.T) {
+func TestDashboardPromptWithoutApprovalDoesNotSkipThePin(t *testing.T) {
 	a, f := setup(t)
 	register(t, a, f)
-	a.RaisePrompt()
-	if p := a.TakePrompt(); !p.Show || !strings.Contains(p.Message, "IT needs to enter the PIN to save") {
+	a.RaisePrompt("req-1", "")
+	if p := a.TakePrompt(); !p.Show || p.Confirm || !strings.Contains(p.Message, "IT needs to enter the PIN to save") {
 		t.Fatalf("%+v", p)
 	}
 	if res := a.UpdateUser(form(), ""); res.OK || !res.NeedsPin || f.userCalls != 0 {
 		t.Fatalf("saved without the PIN after a prompt: %+v", res)
+	}
+	if res := a.ConfirmDetails(form()); res.OK || !res.NeedsPin || f.userCalls != 0 {
+		t.Fatalf("confirmed without an approval: %+v", res)
+	}
+}
+
+func TestApprovalOnlyWorksThroughTheConfirmForm(t *testing.T) {
+	a, f := setup(t)
+	register(t, a, f)
+	f.confirmID, f.approval = "req-1", testApproval
+	a.RaisePrompt("req-1", testApproval)
+	// "Update my details" opened by the user (not by IT's request) still needs the PIN.
+	if res := a.UpdateUser(form(), ""); res.OK || !res.NeedsPin || f.userCalls != 0 {
+		t.Fatalf("normal save used the approval: %+v", res)
 	}
 }
 

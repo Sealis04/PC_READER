@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://pcreader.internal/contracts/agent-api/user.request.schema.json",
   "title": "PUT /api/agent/user request (and response body)",
-  "description": "The user's details plus the current hourly IT PIN (it_pin; the PIN is not stored). Same detail fields as register.request's user, without policy_acknowledged. The response returns the stored user in the same shape, without it_pin (see UserDetails).",
+  "description": "The user's details plus IT's approval for the save: either the current hourly IT PIN (it_pin; the PIN is not stored), or, when IT pressed \"Ask user to confirm details\" on the dashboard, that request's id and approval code (confirm). The approval code came with the request over the events stream; it is valid for one save within 24 hours and does not allow a different employee_id. Same detail fields as register.request's user, without policy_acknowledged. The response returns the stored user in the same shape, without it_pin or confirm (see UserDetails).",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -11,8 +11,11 @@
     "email",
     "department",
     "position",
-    "phone",
-    "it_pin"
+    "phone"
+  ],
+  "anyOf": [
+    { "properties": { "it_pin": true }, "required": ["it_pin"] },
+    { "properties": { "confirm": true }, "required": ["confirm"] }
   ],
   "properties": {
     "full_name": {
@@ -56,6 +59,20 @@
       "type": "string",
       "pattern": "^[0-9]{6}$",
       "description": "The current hourly IT PIN (shown on the dashboard)"
+    },
+    "confirm": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["request_id", "approval"],
+      "description": "The dashboard's \"Ask user to confirm details\" request this save answers",
+      "properties": {
+        "request_id": { "type": "string", "format": "uuid" },
+        "approval": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{43}$",
+          "description": "The approval code that came with the request"
+        }
+      }
     }
   }
 }

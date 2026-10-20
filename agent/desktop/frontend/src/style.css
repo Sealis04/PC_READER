@@ -46,6 +46,7 @@ input[type="text"], input[type="password"], input[type="email"], input[type="url
 }
 input:focus-visible, button:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 input[aria-invalid="true"] { border-color: var(--danger); }
+input[readonly] { color: var(--muted); border-style: dashed; }
 .check { display: flex; gap: 8px; align-items: flex-start; font-weight: 400; }
 .field-error { color: var(--danger); font-size: 0.85rem; font-weight: 400; min-height: 0; }
 .actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }

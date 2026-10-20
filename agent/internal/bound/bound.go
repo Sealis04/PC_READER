@@ -71,6 +71,8 @@ type App struct {
 
 	connStatus, connLabel string // background connection, set by the shell
 	promptPending         bool   // IT asked the user to confirm their details
+	// confirm is IT's approval from the latest "confirm details" request: one save without the PIN.
+	confirm *payload.ConfirmApproval
 }
 
 func New(svc *app.Service, version string) *App {
@@ -101,17 +103,30 @@ func (a *App) Connection() ConnectionView {
 	return ConnectionView{Status: a.connStatus, Label: a.connLabel}
 }
 
-// RaisePrompt records that IT asked the user to confirm their details (called by the shell).
-func (a *App) RaisePrompt() {
+// RaisePrompt records that IT asked the user to confirm their details (called by the shell), with the
+// request's approval code: it lets the user save once without the PIN. Kept in memory only.
+func (a *App) RaisePrompt(requestID, approval string) {
 	a.mu.Lock()
 	a.promptPending = true
+	if requestID != "" && approval != "" {
+		a.confirm = &payload.ConfirmApproval{RequestID: requestID, Approval: approval}
+	}
 	a.mu.Unlock()
 }
+
+const (
+	confirmPromptMessage = "IT asked you to confirm these details."
+	pinPromptForDetails  = "IT asked you to confirm these details. IT needs to enter the PIN to save."
+	confirmGoneMessage   = "This confirmation is no longer valid. IT needs to enter the PIN to save."
+	employeeIDNeedsIT    = "Changing the employee ID needs IT."
+)
 
 // PromptView is the answer to TakePrompt.
 type PromptView struct {
 	Show    bool   `json:"show"`
 	Message string `json:"message"`
+	// Confirm means IT's approval is at hand: save with ConfirmDetails, no PIN field, employee ID read-only.
+	Confirm bool `json:"confirm"`
 }
 
 // TakePrompt tells the window whether to open "Update my details" with a message, and clears
@@ -123,7 +138,62 @@ func (a *App) TakePrompt() PromptView {
 		return PromptView{}
 	}
 	a.promptPending = false
-	return PromptView{Show: true, Message: "IT asked you to confirm these details. IT needs to enter the PIN to save."}
+	if a.confirm != nil {
+		return PromptView{Show: true, Message: confirmPromptMessage, Confirm: true}
+	}
+	return PromptView{Show: true, Message: pinPromptForDetails}
+}
+
+// ConfirmDetails saves the details the user confirmed after IT's request, with the request's approval
+// code instead of the PIN. The employee ID must stay the same (the server checks too); the code works once.
+func (a *App) ConfirmDetails(f UserForm) Result {
+	a.mu.Lock()
+	confirm := a.confirm
+	a.mu.Unlock()
+	if confirm == nil {
+		return Result{Message: confirmGoneMessage, NeedsPin: true}
+	}
+	errs := validate(f, false)
+	if st, err := a.svc.Status(); err == nil && st.User != nil && strings.TrimSpace(f.EmployeeID) != st.User.EmployeeID {
+		errs["employeeId"] = employeeIDNeedsIT
+	}
+	if len(errs) > 0 {
+		return Result{Message: "Please fix the highlighted fields.", FieldErrors: errs}
+	}
+	if !a.busy.TryLock() {
+		return fail("Another action is still running. Please wait.")
+	}
+	defer a.busy.Unlock()
+	if _, err := a.svc.ConfirmUser(a.ctx, userFromForm(f), *confirm); err != nil {
+		var apiErr *api.Error
+		if errors.As(err, &apiErr) {
+			switch {
+			case apiErr.Status == 403 && apiErr.Code == "pin_required":
+				return Result{Message: employeeIDNeedsIT, FieldErrors: map[string]string{"employeeId": employeeIDNeedsIT}}
+			case apiErr.Status == 403:
+				a.dropConfirm(confirm)
+				return Result{Message: confirmGoneMessage, NeedsPin: true}
+			case apiErr.Status == 429:
+				return fail("Too many wrong tries. Try again in a minute.")
+			case apiErr.Status == 400:
+				if fields := fieldErrorsFromDetails(apiErr); len(fields) > 0 {
+					return Result{Message: "The server did not accept some of your details.", FieldErrors: fields}
+				}
+			}
+		}
+		return a.failure(err)
+	}
+	a.dropConfirm(confirm)
+	return Result{OK: true, Message: "Your details were saved."}
+}
+
+// dropConfirm forgets a used or refused approval (unless a newer request already replaced it).
+func (a *App) dropConfirm(c *payload.ConfirmApproval) {
+	a.mu.Lock()
+	if a.confirm == c {
+		a.confirm = nil
+	}
+	a.mu.Unlock()
 }
 
 func (a *App) ready() {
