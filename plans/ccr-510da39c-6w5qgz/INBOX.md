@@ -111,3 +111,28 @@ Not used for M5. builder-1: write your summary here under `### From builder-1` (
 **Could not verify**
 - Real desktop builds (`wails build` on Windows/macOS) and a click-through on a real PC with the server stopped; only unit tests, `vite build` with stubbed bindings and `GOOS=windows go vet` were possible here. CI should cover the builds.
 - Local Postgres had password auth set for the test run; no `.env` was touched.
+
+#### Round 2 (2026-10-20) — view-only without the IT PIN
+
+**Status:** DONE — new PR into `ccr-510da39c-6w5qgz` from `claude/cool-volta-cw23vh`, **supersedes #9**, still stacked on #8 (merge #8 first; close #9). Local: `bun run lint` and `bun run test` pass (contracts 37, server 111, Go all packages); `agent/cmd/pcreader` end-to-end (`TestEndToEnd`) passes against a real server + Postgres; `GOOS=windows go vet` of `agent/desktop` and `node --check` of the frontend pass. The addendum won over the first round-2 text: **no prompt exception**; confirming details after a dashboard prompt needs the PIN too.
+
+**Files changed**
+- Contracts: `register.request` (+`it_pin`, required), `user.request` (+`it_pin`, required), `scans.request` (+`it_pin`, optional; the handler requires it for `manual`); `index.ts` (`UserRequest`, `ScansRequest.it_pin?`), fixtures `register/*`, `user/*`, `fixtures/README.md`, `contracts/test/fixtures.test.ts`.
+- Server: `src/db/schema.ts` + migration `drizzle/0004_panoramic_luckman.sql` (+snapshot/journal): `settings_unlock_attempts.device_id` nullable, `client_ip`, `unlock_method` + `register`/`update_details`/`manual_scan`; `src/lib/it-pin.ts` (`verifyPin(db, subject, pin, method)`, `clientIp`, `pinErrorResponse`, `derivePin` exported); `src/lib/agent/{register,user,scans,settings-unlock}.ts`; device page and `/it-pin` wording; tests `test/{helpers,it-pin,user-api}.test.ts`.
+- Agent: `internal/payload`, `internal/api/client.go` (UpdateUser takes the PIN; `too_many_attempts` 429 is not retried), `internal/app/app.go` (PIN in `RegisterInput`, `UploadOptions`, `Report`, `UpdateUser`), `internal/background/runner.go`, `internal/bound/bound.go`, `cmd/pcreader/main.go`, desktop `main.go` and frontend (`main.js`, `style.css`); tests in `internal/{api,app,bound}`, `cmd/pcreader` (incl. `e2e_test.go`).
+- Docs: `README.md`, `agent/README.md`, `CLAUDE.md`.
+
+**What was done**
+- Server enforces the PIN: `/register` (after the enrollment key; limited per client IP, attempt rows with `device_id` null, method `register`), `PUT /user` (`update_details`), `POST /scans` with `scan_type: manual` (`manual_scan`; `on_demand`/`scheduled`/`startup` need none). 403 `wrong_pin`, 429 `too_many_attempts` (5 wrong/min per device, or per IP at signup, counted across methods). Device page shows the method.
+- Agent/desktop: `bound` has a 10-minute IT session (`Session()`, PIN kept in memory only, cleared on lock/expiry/wrong PIN); Report now, signup, Update my details and Settings need the PIN; shared 5-tries/60 s lockout; offline actions say "Can't reach the server. Try again when this computer is online." (only Settings keeps the key fallback). Window: PIN dialog, "Unlocked for IT (m:ss) · Lock" indicator, PIN field on signup and Update my details (hidden while the session holds a PIN), prompt text "IT asked you to confirm these details. IT needs to enter the PIN to save." Tray "Report now" opens the window and asks for the PIN when locked. Hiding the window locks (`OnBeforeClose` replaces `HideWindowOnClose`). CLI: `register --pin` (required), `scan --upload --pin` (required for manual).
+
+**What to check**
+- `OnBeforeClose` + `WindowHide` instead of `HideWindowOnClose`: I could not run the desktop app, so please confirm on Windows that the X button still only hides the window and that it comes back locked. (On macOS this also stops Cmd+Q from quitting, which matches "no quit item".)
+- A missing `it_pin` on register/user is `400 invalid_payload` (required by the schema), not 403; a wrong/old PIN is 403.
+- The first scan uploaded at signup is `manual`, so it re-uses the signup PIN (one extra `manual_scan` attempt row).
+- If IT presses Change now mid-session, the next action fails with "That PIN is not correct", counts as a wrong try and asks again.
+- Key-unlocked Settings (offline) opens Settings only; actions still ask for the PIN.
+- `settings_unlock_attempts` / `unlock_method` names kept from #9 to avoid a table rename; they now cover more than Settings.
+
+**Could not verify**
+- Real `wails build` and a click-through on a PC (CI builds the desktop apps); the frontend has no tests, only a syntax check.

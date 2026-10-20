@@ -62,3 +62,19 @@ IT no longer sets a PIN on each PC. The dashboard shows one current **IT PIN** f
 - Clock skew on the server only matters for the dashboard display; verification happens on the server, so PC clocks don't matter.
 - Enrollment key rotated by IT later → PCs keep the old key's hash until IT setup runs again; document it.
 - Dashboard without login exposes the PIN (accepted for now).
+
+----
+
+## v2 — The desktop app is view-only without the hourly IT PIN
+
+**Problem.** v1 only protected Settings. New rule: without the IT PIN, users can only view My computer and Full details.
+
+**Fix.**
+- Server enforces the PIN on `POST /register` (after the enrollment key; rate limit per client IP, attempts with `device_id` null), `PUT /user`, and `POST /scans` when `scan_type` is `manual`. Dashboard-requested scans (`on_demand`) and Send logs need none. Attempts table gains `client_ip`, nullable `device_id` and methods `register` / `update_details` / `manual_scan` (migration 0004).
+- Contracts: `it_pin` on register and user requests (required), on scans (optional, required for manual by the handler).
+- Agent: one correct PIN unlocks the app for 10 minutes or until the window is hidden; the PIN stays in memory only; shared 5-tries/60 s lockout; no offline fallback except Settings' enrollment key; `pcreader register --pin`, `scan --upload --pin`.
+- Window: PIN dialog, "Unlocked for IT · Lock" indicator, PIN fields on signup and Update my details, tray Report now asks first, dashboard prompt also needs the PIN.
+
+**Affected files.** See "Round 2" in `plans/ccr-510da39c-6w5qgz/INBOX.md`.
+
+**Deviations from the first round-2 text.** The "confirm details prompt needs no PIN" exception was dropped (addendum).

@@ -11,7 +11,7 @@ export default async function ItPinPage() {
     <>
       <div>
         <h1>IT PIN</h1>
-        <p className="sub">Type this PIN in the PC_READER app on any computer to open its Settings. It changes every hour ({TIME_ZONE} time).</p>
+        <p className="sub">Type this PIN in the PC_READER app on any computer for Report now, signup, Update my details and Settings (without it the app is view-only). It changes every hour ({TIME_ZONE} time).</p>
       </div>
       <section className="panel pad">
         <PinBox initialPin={pin} initialExpiresAt={expiresAt.toISOString()} timeZone={TIME_ZONE} />
