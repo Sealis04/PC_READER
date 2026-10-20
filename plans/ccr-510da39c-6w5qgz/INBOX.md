@@ -60,7 +60,7 @@ Four commits on `claude/cool-volta-vpm2az`, PR into `main`.
 
 **Not verified:** the new client components in a real browser (reveal countdown, Copy, PIN form); no visual check of the Fields page or device panel. CI does not run on PRs.
 
-**Notes:** a PIN failure on a reveal counts toward the same 5-per-minute limit as the PCs' attempts for that device (subject = device id). Reorder requires listing every active field. A failed first test run on a fresh DB showed that new migrations containing `ALTER TYPE ... ADD VALUE` race when many test files migrate at once; harmless once the database is migrated (CI runs on a fresh DB, so if it flakes, run `bun src/db/migrate.ts` first).
+**Notes:** a PIN failure on a reveal counts toward the same 5-per-minute limit as the PCs' attempts for that device (subject = device id). Reorder requires listing every active field.
 
 ---
 
