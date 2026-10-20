@@ -8,5 +8,5 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const staff = await requireStaffApi(req);
   if (staff instanceof Response) return staff;
   const { id } = await ctx.params;
-  return handleInventoryAction(req, getDb(), id);
+  return handleInventoryAction(req, getDb(), id, staff.id);
 }

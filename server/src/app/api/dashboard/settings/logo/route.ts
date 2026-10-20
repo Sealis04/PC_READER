@@ -7,11 +7,11 @@ export const dynamic = "force-dynamic";
 export async function POST(req: Request): Promise<Response> {
   const staff = await requireStaffApi(req);
   if (staff instanceof Response) return staff;
-  return handleSetLogo(req, getDb());
+  return handleSetLogo(req, getDb(), staff.id);
 }
 
 export async function DELETE(req: Request): Promise<Response> {
   const staff = await requireStaffApi(req);
   if (staff instanceof Response) return staff;
-  return handleClearLogo(getDb());
+  return handleClearLogo(req, getDb(), staff.id);
 }

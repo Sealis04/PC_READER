@@ -1,4 +1,6 @@
 import type { Db } from "@/db";
+import { clientIp } from "@/lib/it-pin";
+import { recordStaffEvent } from "@/lib/staff-events";
 import { HttpError, errorResponse, jsonResponse, readJson } from "@/lib/http";
 import { clearLogo, getSettings, logoUrl, MAX_LOGO_BYTES, setLogo, SettingsError, updateSettings, type Settings } from "@/lib/settings";
 
@@ -14,8 +16,8 @@ export async function handleGetSettings(db: Db): Promise<Response> {
   return jsonResponse(body(await getSettings(db)));
 }
 
-// POST /api/dashboard/settings { agency_name?, inventory_prefix? } — no staff login yet (accepted risk).
-export async function handleUpdateSettings(req: Request, db: Db): Promise<Response> {
+// POST /api/dashboard/settings { agency_name?, inventory_prefix? } — logged as a settings_changed staff event.
+export async function handleUpdateSettings(req: Request, db: Db, staffId: string | null = null): Promise<Response> {
   let json: unknown;
   try {
     json = await readJson(req);
@@ -26,7 +28,10 @@ export async function handleUpdateSettings(req: Request, db: Db): Promise<Respon
   const b = (json && typeof json === "object" && !Array.isArray(json) ? json : {}) as Record<string, unknown>;
   if (b.agency_name === undefined && b.inventory_prefix === undefined) return errorResponse(400, "invalid_payload", "Send agency_name and/or inventory_prefix");
   try {
-    return jsonResponse(body(await updateSettings(db, { agencyName: b.agency_name, inventoryPrefix: b.inventory_prefix })));
+    const settings = await updateSettings(db, { agencyName: b.agency_name, inventoryPrefix: b.inventory_prefix });
+    const fields = [b.agency_name !== undefined && "agency name", b.inventory_prefix !== undefined && "inventory prefix"].filter(Boolean).join(", ");
+    await recordStaffEvent(db, { type: "settings_changed", staffUserId: staffId, detail: `Changed ${fields}`, clientIp: clientIp(req) });
+    return jsonResponse(body(settings));
   } catch (e) {
     return fail(e);
   }
@@ -34,18 +39,22 @@ export async function handleUpdateSettings(req: Request, db: Db): Promise<Respon
 
 // POST /api/dashboard/settings/logo — the raw image as the request body (Content-Type image/png, image/jpeg
 // or image/webp, at most 512 KB). Replaces the current logo.
-export async function handleSetLogo(req: Request, db: Db): Promise<Response> {
+export async function handleSetLogo(req: Request, db: Db, staffId: string | null = null): Promise<Response> {
   const declared = Number(req.headers.get("content-length") ?? "0");
   if (declared > MAX_LOGO_BYTES) return errorResponse(413, "payload_too_large", `The logo must be at most ${MAX_LOGO_BYTES / 1024} KB`);
   const bytes = new Uint8Array(await req.arrayBuffer());
   try {
-    return jsonResponse(body(await setLogo(db, bytes, req.headers.get("content-type") ?? "")));
+    const settings = await setLogo(db, bytes, req.headers.get("content-type") ?? "");
+    await recordStaffEvent(db, { type: "logo_changed", staffUserId: staffId, detail: "Logo replaced", clientIp: clientIp(req) });
+    return jsonResponse(body(settings));
   } catch (e) {
     return fail(e);
   }
 }
 
 // DELETE /api/dashboard/settings/logo
-export async function handleClearLogo(db: Db): Promise<Response> {
-  return jsonResponse(body(await clearLogo(db)));
+export async function handleClearLogo(req: Request, db: Db, staffId: string | null = null): Promise<Response> {
+  const settings = await clearLogo(db);
+  await recordStaffEvent(db, { type: "logo_changed", staffUserId: staffId, detail: "Logo removed", clientIp: clientIp(req) });
+  return jsonResponse(body(settings));
 }

@@ -60,7 +60,7 @@ async function lockDevice(tx: Tx, id: string): Promise<Device> {
 
 // Writes the new number and its history row. Typed numbers that look generated raise that year's
 // counter so a later "assign next" can never produce the same number.
-async function writeNumber(tx: Tx, device: Device, value: string | null, reason: string | null, prefix: string): Promise<void> {
+async function writeNumber(tx: Tx, device: Device, value: string | null, reason: string | null, prefix: string, changedBy: string | null): Promise<void> {
   if (value !== null) {
     const [holder] = await tx
       .select({ id: devices.id, hostname: devices.hostname })
@@ -77,11 +77,11 @@ async function writeNumber(tx: Tx, device: Device, value: string | null, reason:
     }
   }
   await tx.update(devices).set({ inventoryNumber: value }).where(eq(devices.id, device.id));
-  await tx.insert(deviceFieldHistory).values({ deviceId: device.id, field: "inventory_number", oldValue: device.inventoryNumber, newValue: value, reason });
+  await tx.insert(deviceFieldHistory).values({ deviceId: device.id, field: "inventory_number", oldValue: device.inventoryNumber, newValue: value, reason, changedBy });
 }
 
 // Issues the next PREFIX-YYYY-NNNNN to a device that has no number yet.
-export async function assignNextNumber(db: Db, deviceId: string, reason?: string | null, now = new Date()): Promise<{ inventoryNumber: string }> {
+export async function assignNextNumber(db: Db, deviceId: string, reason?: string | null, now = new Date(), changedBy: string | null = null): Promise<{ inventoryNumber: string }> {
   const why = cleanReason(reason);
   return db.transaction(async (tx) => {
     const device = await lockDevice(tx, deviceId);
@@ -100,13 +100,13 @@ export async function assignNextNumber(db: Db, deviceId: string, reason?: string
       throw new InventoryError(409, "conflict", `All ${MAX_COUNTER} inventory numbers for ${year} are used`);
     }
     const inventoryNumber = formatInventoryNumber(inventoryPrefix, year, row.lastValue);
-    await writeNumber(tx, device, inventoryNumber, why, inventoryPrefix);
+    await writeNumber(tx, device, inventoryNumber, why, inventoryPrefix, changedBy);
     return { inventoryNumber };
   });
 }
 
 // Sets an existing sticker number. Returns changed=false when the device already has exactly that number.
-export async function setInventoryNumber(db: Db, deviceId: string, value: string, reason?: string | null): Promise<{ changed: boolean; inventoryNumber: string }> {
+export async function setInventoryNumber(db: Db, deviceId: string, value: string, reason?: string | null, changedBy: string | null = null): Promise<{ changed: boolean; inventoryNumber: string }> {
   const number = value.trim();
   if (!number) throw new InventoryError(400, "invalid_payload", "The inventory number cannot be empty");
   if (number.length > MAX_NUMBER_LENGTH) throw new InventoryError(400, "invalid_payload", `The inventory number must be at most ${MAX_NUMBER_LENGTH} characters`);
@@ -116,36 +116,36 @@ export async function setInventoryNumber(db: Db, deviceId: string, value: string
     const value = parseGeneratedNumber(number, inventoryPrefix) ? number.toUpperCase() : number;
     const device = await lockDevice(tx, deviceId);
     if (device.inventoryNumber === value) return { changed: false, inventoryNumber: value };
-    await writeNumber(tx, device, value, why, inventoryPrefix);
+    await writeNumber(tx, device, value, why, inventoryPrefix, changedBy);
     return { changed: true, inventoryNumber: value };
   });
 }
 
 // Removes a number entered by mistake. The counter is not lowered, so the number is not reissued.
-export async function clearInventoryNumber(db: Db, deviceId: string, reason?: string | null): Promise<{ changed: boolean }> {
+export async function clearInventoryNumber(db: Db, deviceId: string, reason?: string | null, changedBy: string | null = null): Promise<{ changed: boolean }> {
   const why = cleanReason(reason);
   return db.transaction(async (tx) => {
     const device = await lockDevice(tx, deviceId);
     if (!device.inventoryNumber) return { changed: false };
-    await writeNumber(tx, device, null, why, "");
+    await writeNumber(tx, device, null, why, "", changedBy);
     return { changed: true };
   });
 }
 
-export async function changeStatus(db: Db, deviceId: string, newStatus: DeviceStatus, reason?: string | null): Promise<{ changed: boolean }> {
+export async function changeStatus(db: Db, deviceId: string, newStatus: DeviceStatus, reason?: string | null, changedBy: string | null = null): Promise<{ changed: boolean }> {
   if (!isDeviceStatus(newStatus)) throw new InventoryError(400, "invalid_payload", `status must be one of ${DEVICE_STATUSES.join(", ")}`);
   const why = cleanReason(reason);
   return db.transaction(async (tx) => {
     const device = await lockDevice(tx, deviceId);
     if (device.status === newStatus) return { changed: false };
     await tx.update(devices).set({ status: newStatus }).where(eq(devices.id, deviceId));
-    await tx.insert(statusHistory).values({ deviceId, oldStatus: device.status, newStatus, reason: why });
+    await tx.insert(statusHistory).values({ deviceId, oldStatus: device.status, newStatus, reason: why, changedBy });
     return { changed: true };
   });
 }
 
 // An empty value clears the location.
-export async function setLocation(db: Db, deviceId: string, value: string | null, reason?: string | null): Promise<{ changed: boolean }> {
+export async function setLocation(db: Db, deviceId: string, value: string | null, reason?: string | null, changedBy: string | null = null): Promise<{ changed: boolean }> {
   const location = value?.trim() || null;
   if (location && location.length > MAX_LOCATION_LENGTH) throw new InventoryError(400, "invalid_payload", `The location must be at most ${MAX_LOCATION_LENGTH} characters`);
   const why = cleanReason(reason);
@@ -153,7 +153,7 @@ export async function setLocation(db: Db, deviceId: string, value: string | null
     const device = await lockDevice(tx, deviceId);
     if (device.location === location) return { changed: false };
     await tx.update(devices).set({ location }).where(eq(devices.id, deviceId));
-    await tx.insert(deviceFieldHistory).values({ deviceId, field: "location", oldValue: device.location, newValue: location, reason: why });
+    await tx.insert(deviceFieldHistory).values({ deviceId, field: "location", oldValue: device.location, newValue: location, reason: why, changedBy });
     return { changed: true };
   });
 }

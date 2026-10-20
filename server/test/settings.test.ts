@@ -129,7 +129,7 @@ describe("logo", () => {
     await upload(png(), "image/png");
     await upload(jpeg, "image/png");
     expect((await getSettings(getDb())).logoContentType).toBe("image/png");
-    const res = await handleClearLogo(getDb());
+    const res = await handleClearLogo(new Request("http://localhost/api/dashboard/settings/logo", { method: "DELETE" }), getDb());
     expect(((await res.json()) as { logo_url: null }).logo_url).toBeNull();
     expect((await handleBrandingLogo(new Request("http://localhost/api/branding/logo"), getDb())).status).toBe(404);
   });
@@ -144,8 +144,10 @@ describe("logo", () => {
 
 describe("upgrade rule (migration 0006)", () => {
   const rerun = async (setup: () => Promise<void>) => {
-    await getDb().execute(sql`drop table app_settings`);
-    await getDb().execute(sql`delete from drizzle.__drizzle_migrations where id = (select max(id) from drizzle.__drizzle_migrations)`);
+    // Undo the later migration (0007, staff tables) and 0006, then run both again.
+    await getDb().execute(sql`drop table staff_events, staff_session, staff_account, staff_verification, staff_user, app_settings`);
+    await getDb().execute(sql`drop type staff_event_type`);
+    await getDb().execute(sql`delete from drizzle.__drizzle_migrations where id in (select id from drizzle.__drizzle_migrations order by id desc limit 2)`);
     await setup();
     await runMigrations();
     return (await getSettings(getDb())).inventoryPrefix;

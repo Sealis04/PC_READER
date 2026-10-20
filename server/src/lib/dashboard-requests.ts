@@ -7,9 +7,9 @@ import { isRequestType, queueRequest, REQUEST_TYPES } from "@/lib/requests";
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // POST /api/dashboard/devices/{id}/requests { "type": "scan_now" | "send_logs" | "prompt_details_update" }
-// Queues a request for the PC (no staff login yet, so requested_by stays null). 201 for a new
+// Queues a request for the PC (requested_by is the signed-in staff member). 201 for a new
 // request, 200 with the existing one when the same type is already open.
-export async function handleQueueRequest(req: Request, db: Db, deviceId: string): Promise<Response> {
+export async function handleQueueRequest(req: Request, db: Db, deviceId: string, staffId: string | null = null): Promise<Response> {
   let body: unknown;
   try {
     body = await readJson(req);
@@ -22,7 +22,7 @@ export async function handleQueueRequest(req: Request, db: Db, deviceId: string)
     return errorResponse(400, "invalid_payload", `type must be one of ${REQUEST_TYPES.join(", ")}`);
   }
   if (!UUID_RE.test(deviceId)) return errorResponse(404, "not_found", "No such device");
-  const queued = await queueRequest(db, deviceId, type);
+  const queued = await queueRequest(db, deviceId, type, staffId);
   if (!queued) return errorResponse(404, "not_found", "No such device");
   const { request } = queued;
   return jsonResponse(

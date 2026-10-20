@@ -8,7 +8,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const staff = await requireStaffApi(req);
   if (staff instanceof Response) return staff;
   const { id } = await ctx.params;
-  return handleQueueRequest(req, getDb(), id);
+  return handleQueueRequest(req, getDb(), id, staff.id);
 }
 
 export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }): Promise<Response> {
