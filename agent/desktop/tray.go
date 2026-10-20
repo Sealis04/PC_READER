@@ -53,13 +53,19 @@ func (t *tray) Start() {
 	// Left-click / double-click opens the window; the right-click menu is the library default.
 	systray.SetOnTapped(t.open)
 	if runtime.GOOS == "windows" {
+		t.mu.Lock()
 		t.end = systray.Quit
+		t.mu.Unlock()
 		runPinned(func() { systray.Run(t.onReady, func() {}) })
 		return
 	}
 	start, end := systray.RunWithExternalLoop(t.onReady, func() {})
+	t.mu.Lock()
 	t.end = end
-	start()
+	t.mu.Unlock()
+	// nativeStart creates the NSStatusItem, which AppKit only allows on the main thread; Wails'
+	// OnStartup runs on a goroutine. Later menu updates are marshalled by the library itself.
+	runOnMainThread(start)
 }
 
 func (t *tray) onReady() {
@@ -100,7 +106,10 @@ func (t *tray) SetStatus(text string) {
 
 // Stop removes the icon (the app is exiting).
 func (t *tray) Stop() {
-	if t.end != nil {
-		t.end()
+	t.mu.Lock()
+	end := t.end
+	t.mu.Unlock()
+	if end != nil {
+		end()
 	}
 }

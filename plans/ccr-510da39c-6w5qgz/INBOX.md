@@ -20,6 +20,38 @@ See the repo `CLAUDE.md`. In short: bun + Drizzle (no Prisma, no `db:push`; `cd 
 
 ---
 
+## builder-1 — FIX REQUEST (2026-10-20) — macOS app crashes on launch
+
+Base: `main` (f81eaf7, includes #13). **Open your PR into `main`.** Round 4 (confirm-details prompt) may be running in parallel on `bound.go` / `main.js` / server; keep this change to the macOS tray start, CI and docs so the two PRs don't conflict.
+
+**Bug (user's real Mac, Apple Silicon):** `PC_READER.app` dies immediately: `NSInternalInconsistencyException: 'NSWindow should only be instantiated on the main thread!'`. Full diagnosis, trace and a proposed fix are in [`plans/m5-hourly-it-pin/macos-tray-crash.md`](../m5-hourly-it-pin/macos-tray-crash.md) (written on the user's side). Short version: `agent/desktop/main.go` starts the tray from Wails' `OnStartup`, which runs on a goroutine; on macOS `systray.RunWithExternalLoop`'s `start()` → `nativeStart` creates an `NSStatusItem` off the main thread.
+
+**Fix:**
+1. On macOS, run the tray start on the main (Cocoa) thread, e.g. `dispatch_async_f(dispatch_get_main_queue(), …)` via cgo as in the handoff (`mainthread_darwin.go` + `mainthread_other.go` no-op), and call it from `OnStartup`. Make sure **everything** in `tray.Start`/`onReady` that touches AppKit (SetTemplateIcon, AddMenuItem, SetTitle, Disable) runs on the main thread; later updates from `SetStatus` too if `fyne.io/systray` doesn't marshal them itself (check its darwin code). Prefer a `cgo.Handle`/queue over a single global function slot.
+2. Check the other macOS-only paths for the same problem: showing/focusing the window from the tray click handler and from the single-instance callback, `WindowHide`/`OnBeforeClose`, and the details-prompt "open window" path. Use Wails' runtime calls (they dispatch to the main thread) rather than direct AppKit calls.
+3. Windows behaviour unchanged (it runs its own tray thread).
+4. **CI launch smoke test (new):** on `macos-latest`, after building the `.app`, start the binary in the background with a throwaway `PCREADER_HOME` and `PCREADER_NO_AUTOSTART=1`, wait ~15 s, assert the process is still alive, then kill it; print its output on failure. Do the same on `windows-latest` for the exe if practical. This would have caught the crash.
+5. README: add the macOS first-launch steps that worked for the user (unzip twice, move to Applications, `xattr -cr /Applications/PC_READER.app`, Open Anyway) and how to run the binary from Terminal to see errors (`/Applications/PC_READER.app/Contents/MacOS/pcreader-desktop`).
+
+**Done when:** `bun run lint` and `bun run test` pass and CI is green, including the new macOS launch test. Write a short summary under `### From builder-1`. Do not fire the reviewer.
+
+---
+
+## builder-1 — FIX REQUEST (2026-10-20, M5 round 4) — confirm-details prompt without the PIN
+
+Base: PR #13 (`claude/cool-volta-35mr05`, not merged yet). **Open your PR into `main`, stacked on #13** (say so; merge #13 first). User decision, overrides the round-2 addendum on this one point:
+
+**When staff pressed "Ask user to confirm details", the user can save once without the IT PIN, but cannot change the employee ID in that save.**
+
+- **Server (`PUT /api/agent/user`):** a request without `it_pin` is accepted only if the device has a `prompt_details_update` request in `delivered` state **and** the `employee_id` equals the current open assignment's user's employee ID. Then it updates that user (no reassignment), marks the request `done`, and returns 200. A different `employee_id` without a PIN → `403` (`error: "pin_required"`, message "Changing the employee ID needs the IT PIN."). No open prompt and no PIN → `403 pin_required` as today (keep existing wrong_pin/429 behaviour when a PIN is sent). With a valid PIN everything works as now and also completes an open prompt. Record the save in `settings_unlock_attempts` with method `update_details` and a marker that it was a prompt confirmation (e.g. method `confirm_details`, success true), so the device page shows it.
+- **Desktop:** when Update my details is opened by the prompt, hide the PIN field, show the employee ID read-only with the note "Changing the employee ID needs IT.", and keep the message "IT asked you to confirm these details." (drop "IT needs to enter the PIN to save"). If IT is unlocked (PIN session), the employee ID is editable as usual. After a successful save the prompt is gone; opening Update my details normally still needs the PIN.
+- **Tests:** server — prompt open + same employee ID without PIN → 200 and request done; prompt open + different ID without PIN → 403; no prompt without PIN → 403; second save without PIN after the first → 403. Go bound tests for the prompt flow.
+- **Docs:** README / `agent/README.md` / `CLAUDE.md` IT PIN line: the one exception.
+
+**Done when:** `bun run lint` and `bun run test` pass and CI (desktop builds included) is green. Write a `#### Round 4` summary. Do not fire the reviewer.
+
+---
+
 ## builder-1 — FIX REQUEST (2026-10-20, M5 round 3) — re-registration dead end
 
 Base: `main` (M2–M5 merged via #11) + the navbar fix on `claude/fervent-mendel-9y30q4` (PR #12). **Open your PR into `main`** (the feature branch is finished).
@@ -160,3 +192,9 @@ Not used for M5. builder-1: write your summary here under `### From builder-1` (
 **Files changed:** `agent/internal/bound/bound.go`, `bound_test.go`, `agent/desktop/frontend/src/main.js`, `agent/README.md`.
 **What was done:** when the server answers 401 (token rejected) the key prompt no longer checks the local hash: the typed key is held in memory and the signup form opens (prefilled, with the IT PIN field); the server checks key + PIN at `/register`. A wrong key there counts toward the shared 5-tries lockout and returns to the key field (`Result.NeedsKey`). The hash fallback and its "no saved enrollment key … unreachable" message now only appear when the server is unreachable. README paragraph + wipe note added.
 **What to check:** typing a key at the rejected prompt does not unlock Settings (nothing to verify it against until `/register`). Not verified: the Wails frontend on a real PC (`main.js` flow `itLogin` → `signup`/`setup`); Go tests, `bun run lint` pass. `bun run test` server part not run here (needs Postgres); no server change.
+
+### From builder-1 (macOS launch crash fix)
+- `agent/desktop/mainthread_darwin.go` / `mainthread_other.go`: `runOnMainThread` (GCD `dispatch_async_f` + `cgo.Handle`; no-op passthrough elsewhere). `tray.Start` now dispatches `systray`'s `start` through it; `t.end` access is mutex-guarded. Windows path unchanged.
+- Checked `fyne.io/systray` v1.12.2 darwin code: later updates (`SetTitle`, menu items, icons) go through `performSelectorOnMainThread`, so `onReady`/`SetStatus` need no extra dispatch. Window show/hide use Wails runtime calls (main-thread safe), no direct AppKit.
+- CI: "Launch smoke test" step in the `desktop` job (macOS + Windows): app must be alive after 15 s. README: macOS first-launch steps + running from Terminal + the new main-thread note.
+- Not verified locally (Linux): Windows vet and desktop tests pass; the darwin build/launch is covered only by the new CI job.
