@@ -37,6 +37,16 @@ Base: `main` (f81eaf7, includes #13). **Open your PR into `main`.** Round 4 (con
 
 ---
 
+## builder-1 — Agency branding + agency-neutral code (2026-10-20)
+
+Plan: [`plans/branding/plan.md`](../branding/plan.md). Base: `origin/claude/fervent-mendel-9y30q4` (= `main` + PR #15). **Open your PR into `main`, stacked on #15** (say so). Implement sections 1–4 of the plan as separate commits, pushing after each.
+
+The repo is going public: the owner wants each server to set its agency **name**, **logo** and **inventory prefix** on a dashboard Settings page (no PIN/login yet), shown on the dashboard and in the desktop app's window, and no agency-specific names left in code or builds. Existing installs must keep working (IA- numbers, start-at-login).
+
+CI now runs only after merges into `main` (Actions minutes ran out); verify with `bun run lint` and `bun run test` locally and say what you could not verify. Do not fire the reviewer; write a summary under `### From builder-1 (branding)` and stop.
+
+---
+
 ## M5 round 4 — DONE by the planner (2026-10-20), approval-code design
 
 Builder runs were stopped twice by their permission check (a PIN exception arriving second-hand). At the owner's request the planner implemented it directly, as **IT's approval travelling with the request** instead of a PIN bypass: `prompt_details_update` reaches the PC with a one-time approval code (HMAC of the request id with the IT PIN secret); `PUT /user` accepts `confirm { request_id, approval }` once, within 24 h, same employee ID; the save closes the request; the agent no longer completes the prompt itself; stale prompts expire after 24 h. Logged as `confirm_details`. The v2 request below is kept for the record.
