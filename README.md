@@ -59,6 +59,18 @@ Devices (not components yet) get an inventory number, a status and a location fr
 - **Label:** `/devices/{id}/label` is a print-friendly page (number, QR code of the number, hostname, serial number) that uses the browser's print dialog. The QR code is generated on the server; no external service is used.
 - **List:** `/devices` shows number, status and location, can be filtered by status, department, OS and connection, and searched by number, hostname, serial number, user name or employee ID.
 
+## Custom fields and secret fields (Milestone 6)
+
+IT defines extra fields once for every computer on the dashboard's **Fields** page (top bar) and fills them in per device on its page, under *Custom fields*.
+
+- **Types:** *Text* (up to 500 characters), *Date* (`YYYY-MM-DD`) and *Secret* (up to 1000 characters, e.g. a local admin password). Fields can be added, renamed, reordered and archived; archiving hides a field but keeps its values, and fields are never deleted. The type cannot change.
+- **History and search:** text and date changes are appended to the device history with the old and new value. The device list search also matches text fields, and a date field can be filtered *on or after / on or before*. Secrets are never searchable and never shown in the list.
+- **Secrets are encrypted:** each value is stored as AES-256-GCM ciphertext with its own random nonce, bound to its device and field. The key is `SECRETS_KEY` in `.env` (32 random bytes, base64: `openssl rand -base64 32`). Without it the server still starts, but secret fields are disabled and the Fields page says so. **Back the key up together with the database; a lost key means lost secrets**, and changing it makes existing secrets unreadable (no re-encryption step yet).
+- **Revealing or changing a secret needs the current IT PIN** (same check and rate limit as everywhere: 403 `wrong_pin`, 429 `too_many_attempts`). *Reveal* shows the value for 30 seconds with a Copy button, then hides it. The device page lists every reveal, change and clear (also refused ones) with time and client IP in *Secret access*; the history shows secret changes only as "changed". The value is never written to a log or history row, and no response other than `POST /api/dashboard/devices/{id}/fields/{field}/reveal` carries it.
+- **Never sent to PCs:** custom fields and secrets are dashboard/server only; the agent and the desktop app do not see them.
+- **API (no login, like the rest of the dashboard):** `GET/POST /api/dashboard/fields`, `PATCH /api/dashboard/fields/{id}`, `POST /api/dashboard/fields/order`, `GET /api/dashboard/devices/{id}/fields`, `PUT .../fields/{field}` (text/date), `PUT .../fields/{field}/secret` and `POST .../fields/{field}/reveal` (both with `pin`).
+- **Accepted risk:** there is no dashboard login yet, so anyone who can open the dashboard can also read the IT PIN and reveal secrets. Every reveal is logged. This is fixed when staff login arrives.
+
 ## The hourly IT PIN: the desktop app is view-only without it (Milestone 5)
 
 **What users can do without the IT PIN: view only.** The person at the PC can open *My computer* and *Full details*. Everything else needs IT's approval, usually the current PIN typed by IT: **Report now** (window button and tray item), **signup** (and `pcreader register --pin`), **Update my details** and **Settings**. Work the dashboard asks for (*Scan now*, *Send logs*) needs no PIN.

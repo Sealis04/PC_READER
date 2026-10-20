@@ -15,7 +15,8 @@ export type ErrorCode =
   | "payload_too_large"
   | "unsupported_media_type"
   | "not_found"
-  | "conflict";
+  | "conflict"
+  | "secrets_unavailable";
 
 export function jsonResponse(body: unknown, status = 200): Response {
   return Response.json(body, { status, headers: { "cache-control": "no-store" } });

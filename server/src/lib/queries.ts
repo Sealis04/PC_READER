@@ -1,10 +1,12 @@
 import type { ScanPayload } from "@pcreader/contracts";
-import { and, asc, desc, eq, gte, ilike, isNull, lt, or, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, exists, gte, ilike, isNull, lt, lte, or, sql, type SQL } from "drizzle-orm";
 import type { Db } from "@/db";
 import {
   assignments,
   components,
+  customFields,
   deviceFieldHistory,
+  deviceFieldValues,
   deviceLogs,
   deviceRequests,
   devices,
@@ -24,6 +26,30 @@ export interface DeviceListFilters {
   os?: Device["osType"];
   // Matches inventory number, hostname, serial number, and the assigned user's name or employee ID.
   q?: string;
+  // Custom date field filter: devices whose value for this field is on/after `after` and/or on/before
+  // `before` (YYYY-MM-DD). Devices without a value never match.
+  dateField?: { fieldId: string; after?: string; before?: string };
+}
+
+function dateCondition(db: Db, f: DeviceListFilters["dateField"]): SQL | undefined {
+  if (!f || (!f.after && !f.before)) return undefined;
+  return exists(
+    db
+      .select({ one: sql`1` })
+      .from(deviceFieldValues)
+      .innerJoin(customFields, eq(customFields.id, deviceFieldValues.fieldId))
+      .where(
+        and(
+          eq(deviceFieldValues.deviceId, devices.id),
+          eq(deviceFieldValues.fieldId, f.fieldId),
+          eq(customFields.type, "date"),
+          isNull(customFields.archivedAt),
+          // YYYY-MM-DD strings compare correctly as text.
+          f.after ? gte(deviceFieldValues.dateValue, f.after) : undefined,
+          f.before ? lte(deviceFieldValues.dateValue, f.before) : undefined,
+        ),
+      ),
+  );
 }
 
 // One query for the whole list (no per-device lookups). The connection and status filters are
@@ -52,8 +78,17 @@ export async function listDevices(db: Db, filters: DeviceListFilters = {}, now =
           ilike(devices.serialNumber, pattern),
           ilike(users.fullName, pattern),
           ilike(users.employeeId, pattern),
+          // Text custom fields are searchable; secrets and dates are not part of q.
+          exists(
+            db
+              .select({ one: sql`1` })
+              .from(deviceFieldValues)
+              .innerJoin(customFields, eq(customFields.id, deviceFieldValues.fieldId))
+              .where(and(eq(deviceFieldValues.deviceId, devices.id), eq(customFields.type, "text"), isNull(customFields.archivedAt), ilike(deviceFieldValues.textValue, pattern))),
+          ),
         )
       : undefined,
+    dateCondition(db, filters.dateField),
   ];
   return db
     .select({
@@ -159,7 +194,10 @@ export async function getNetworkHistory(db: Db, deviceId: string) {
 
 export type HistoryEvent = {
   at: Date;
-  kind: "status" | "inventory_number" | "location" | "assigned" | "unassigned";
+  kind: "status" | "inventory_number" | "location" | "custom_field" | "assigned" | "unassigned";
+  // custom_field only: the field's name, and whether it is a secret (values are never recorded).
+  fieldName?: string | null;
+  secret?: boolean;
   from: string | null;
   to: string | null;
   reason: string | null;
@@ -171,7 +209,11 @@ export type HistoryEvent = {
 export async function getDeviceHistory(db: Db, deviceId: string): Promise<HistoryEvent[]> {
   const [statuses, fields, assigned] = await Promise.all([
     db.select().from(statusHistory).where(eq(statusHistory.deviceId, deviceId)),
-    db.select().from(deviceFieldHistory).where(eq(deviceFieldHistory.deviceId, deviceId)),
+    db
+      .select({ row: deviceFieldHistory, fieldName: customFields.name, fieldType: customFields.type })
+      .from(deviceFieldHistory)
+      .leftJoin(customFields, eq(customFields.id, deviceFieldHistory.customFieldId))
+      .where(eq(deviceFieldHistory.deviceId, deviceId)),
     db
       .select({ startAt: assignments.startAt, endAt: assignments.endAt, assignedBy: assignments.assignedBy, notes: assignments.notes, userName: users.fullName, employeeId: users.employeeId })
       .from(assignments)
@@ -180,7 +222,17 @@ export async function getDeviceHistory(db: Db, deviceId: string): Promise<Histor
   ]);
   const events: HistoryEvent[] = [
     ...statuses.map((r): HistoryEvent => ({ at: r.changedAt, kind: "status", from: r.oldStatus, to: r.newStatus, reason: r.reason, by: r.changedBy })),
-    ...fields.map((r): HistoryEvent => ({ at: r.changedAt, kind: r.field, from: r.oldValue, to: r.newValue, reason: r.reason, by: r.changedBy })),
+    ...fields.map(
+      ({ row: r, fieldName, fieldType }): HistoryEvent => ({
+        at: r.changedAt,
+        kind: r.field,
+        from: r.oldValue,
+        to: r.newValue,
+        reason: r.reason,
+        by: r.changedBy,
+        ...(r.field === "custom_field" && { fieldName, secret: fieldType === "secret" }),
+      }),
+    ),
   ];
   for (const a of assigned) {
     const who = `${a.userName} (${a.employeeId})`;
