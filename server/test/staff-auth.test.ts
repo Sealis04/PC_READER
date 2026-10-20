@@ -86,14 +86,14 @@ describe("settings helpers", () => {
   test("a custom list", () => {
     expect(isAllowedLevel("HR", "IT, HR")).toBe(true);
     expect(isAllowedLevel("ADMIN", "IT, HR")).toBe(false);
-    expect(allowedLevels({ HRIS_ALLOWED_USER_LEVELS: "IT, HR" } as NodeJS.ProcessEnv)).toEqual(["IT", "HR"]);
-    expect(allowedLevels({} as NodeJS.ProcessEnv)).toEqual(["IT"]);
+    expect(allowedLevels({ HRIS_ALLOWED_USER_LEVELS: "IT, HR" })).toEqual(["IT", "HR"]);
+    expect(allowedLevels({})).toEqual(["IT"]);
   });
   test("authConfigured needs all five settings", () => {
-    const full = { BETTER_AUTH_SECRET: "a", BETTER_AUTH_URL: "b", HRIS_URL: "c", HRIS_CLIENT_ID: "d", HRIS_CLIENT_SECRET: "e" } as NodeJS.ProcessEnv;
+    const full = { BETTER_AUTH_SECRET: "a", BETTER_AUTH_URL: "b", HRIS_URL: "c", HRIS_CLIENT_ID: "d", HRIS_CLIENT_SECRET: "e" };
     expect(authConfigured(full)).toBe(true);
     for (const k of Object.keys(full)) expect(authConfigured({ ...full, [k]: "" })).toBe(false);
-    expect(authConfigured({} as NodeJS.ProcessEnv)).toBe(false);
+    expect(authConfigured({})).toBe(false);
   });
   test("safeNext keeps same-origin paths only", () => {
     expect(safeNext("/devices/1?x=2")).toBe("/devices/1?x=2");
