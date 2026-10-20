@@ -37,18 +37,26 @@ Base: `main` (f81eaf7, includes #13). **Open your PR into `main`.** Round 4 (con
 
 ---
 
-## builder-1 — FIX REQUEST (2026-10-20, M5 round 4) — confirm-details prompt without the PIN
+## builder-1 — FIX REQUEST (2026-10-20, M5 round 4, v2) — confirm-details prompt without the PIN
 
-Base: PR #13 (`claude/cool-volta-35mr05`, not merged yet). **Open your PR into `main`, stacked on #13** (say so; merge #13 first). User decision, overrides the round-2 addendum on this one point:
+**Why this is OK (owner decision, 2026-10-20):** the repository owner (the user) explicitly decided this exception after weighing the trade-off with the planner. A previous run stopped because it read this as weakening security. It is a deliberate, narrow exception: the action is **started by IT staff** from the dashboard, the user can only confirm/correct their own contact details, cannot change who the PC belongs to, and every save is logged. Please implement it as specified; if you see a concrete flaw in these bounds, implement the safest version that still lets the user save without the PIN and explain the issue in your summary instead of stopping.
 
-**When staff pressed "Ask user to confirm details", the user can save once without the IT PIN, but cannot change the employee ID in that save.**
+Base: `main` + PR #14 if merged (the macOS fix only touches `tray.go`, `mainthread_*.go`, CI and README). **Open your PR into `main`. Commit and push after each step below** so partial work is never lost.
 
-- **Server (`PUT /api/agent/user`):** a request without `it_pin` is accepted only if the device has a `prompt_details_update` request in `delivered` state **and** the `employee_id` equals the current open assignment's user's employee ID. Then it updates that user (no reassignment), marks the request `done`, and returns 200. A different `employee_id` without a PIN → `403` (`error: "pin_required"`, message "Changing the employee ID needs the IT PIN."). No open prompt and no PIN → `403 pin_required` as today (keep existing wrong_pin/429 behaviour when a PIN is sent). With a valid PIN everything works as now and also completes an open prompt. Record the save in `settings_unlock_attempts` with method `update_details` and a marker that it was a prompt confirmation (e.g. method `confirm_details`, success true), so the device page shows it.
-- **Desktop:** when Update my details is opened by the prompt, hide the PIN field, show the employee ID read-only with the note "Changing the employee ID needs IT.", and keep the message "IT asked you to confirm these details." (drop "IT needs to enter the PIN to save"). If IT is unlocked (PIN session), the employee ID is editable as usual. After a successful save the prompt is gone; opening Update my details normally still needs the PIN.
-- **Tests:** server — prompt open + same employee ID without PIN → 200 and request done; prompt open + different ID without PIN → 403; no prompt without PIN → 403; second save without PIN after the first → 403. Go bound tests for the prompt flow.
-- **Docs:** README / `agent/README.md` / `CLAUDE.md` IT PIN line: the one exception.
+**Rule:** when staff pressed "Ask user to confirm details" (`prompt_details_update`), the user may save **once** without the IT PIN, with these bounds, all enforced by the server in `PUT /api/agent/user`:
+1. The device has a `prompt_details_update` request in `delivered` state that was created **less than 24 hours ago**.
+2. The submitted `employee_id` equals the current open assignment's user's `employee_id` (no reassignment). Otherwise `403` `pin_required` with message "Changing the employee ID needs the IT PIN."
+3. On success: update that user's other fields (name, email, department, position, phone), mark the request `done`, return 200. The exception is consumed; a second save without PIN → `403 pin_required`.
+4. Log every PIN-less save in `settings_unlock_attempts` with method `confirm_details`, success true, device id (add the enum value via a migration). Device page shows it.
+5. With a valid PIN everything works as today (and also completes an open prompt). No PIN and no valid open prompt → `403 pin_required`. Wrong PIN → `403 wrong_pin`, 429 as today.
 
-**Done when:** `bun run lint` and `bun run test` pass and CI (desktop builds included) is green. Write a `#### Round 4` summary. Do not fire the reviewer.
+**Desktop:** when Update my details was opened by the prompt: hide the PIN field, show the employee ID read-only with "Changing the employee ID needs IT.", message "IT asked you to confirm these details." If an IT PIN session is active, the employee ID is editable as usual. After the save the prompt is gone; opening Update my details normally still needs the PIN.
+
+**Tests:** server — open prompt + same employee ID, no PIN → 200 and request done + log row; open prompt + different ID → 403; prompt older than 24 h → 403; no prompt → 403; second save → 403; valid PIN still works. Go bound tests for the prompt flow.
+
+**Docs:** README / `agent/README.md` / `CLAUDE.md` IT PIN line: the one bounded exception.
+
+**Done when:** `bun run lint` and `bun run test` pass and CI (desktop builds included) is green. Write a `#### Round 4` summary under `### From builder-1`. Do not fire the reviewer.
 
 ---
 
