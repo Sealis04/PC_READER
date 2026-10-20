@@ -167,6 +167,26 @@ jobs:
           wails build -clean $flags -platform ${{ matrix.platform }} \
             -ldflags "-X main.version=0.2.0+${GITHUB_SHA::7}"
           ls -lR build/bin
+      - name: Launch smoke test (must still be running after 15 s)
+        # The macOS tray crash (NSStatusItem created off the main thread) only shows at runtime.
+        run: |
+          if [ "${{ matrix.name }}" = windows ]; then
+            bin="$PWD/build/bin/pcreader-desktop.exe"
+          else
+            bin="$PWD/build/bin/PC_READER.app/Contents/MacOS/pcreader-desktop"
+          fi
+          export PCREADER_HOME="$RUNNER_TEMP/pcreader-smoke" PCREADER_NO_AUTOSTART=1
+          mkdir -p "$PCREADER_HOME"
+          "$bin" > "$RUNNER_TEMP/smoke.log" 2>&1 &
+          pid=$!
+          sleep 15
+          if ! kill -0 "$pid" 2>/dev/null; then
+            echo "::error::desktop app exited within 15 s"
+            cat "$RUNNER_TEMP/smoke.log"
+            exit 1
+          fi
+          kill "$pid" || true
+          echo "still running after 15 s"
       - name: Package (Windows)
         if: matrix.name == 'windows'
         run: |

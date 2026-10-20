@@ -30,6 +30,8 @@ Download the `pcreader-desktop` artifact from the latest successful **agent** wo
 
 ### Install on Mac
 
+First launch on a Mac: unzip `pcreader-desktop-macos.zip` (the download may be zipped twice, unzip again), move `PC_READER.app` to `/Applications`, run `xattr -cr /Applications/PC_READER.app`, then open it and, if macOS still blocks it, choose *Open Anyway* in *System Settings → Privacy & Security*. To see errors, start the binary from Terminal: `/Applications/PC_READER.app/Contents/MacOS/pcreader-desktop`.
+
 Unzip `pcreader-desktop-macos.zip` and drag `PC_READER.app` into `/Applications`, then open it (first launch: see Gatekeeper below). Start at login writes a LaunchAgent that points at the app where it is running from, so install it in `/Applications` *before* the first launch. If the app is moved later, open it once and the entry is rewritten. Uninstall: delete the app and `~/Library/LaunchAgents/ph.gov.intramuros.pcreader.plist`; `~/Library/Application Support/PCReader` and the Keychain item `PCReader` stay unless you delete them.
 
 ### First-time setup (IT)
@@ -88,7 +90,7 @@ After IT setup or signup the desktop app keeps running quietly:
 - **`pcreader listen`** runs the same connection in the foreground (Ctrl+C to stop): for testing on Linux/CI and for debugging on a real PC. `--from-raw DIR` answers `scan_now` from a `capture-raw` folder instead of scanning. On Linux the network snapshot lists interface addresses only.
 - **Users can still end the app** (Task Manager, removing the login item). The computer then shows as Offline, and as Stale after 48 hours.
 
-The tray uses [`fyne.io/systray`](https://github.com/fyne-io/systray) next to Wails v2. On macOS it joins Wails' main thread (`RunWithExternalLoop`). On Windows it runs on its own goroutine locked to one OS thread with the library's own message loop (`systray.Run`): the tray's hidden window and its message loop must share a thread, and Wails' `OnStartup` goroutine has no loop, which is why clicks were ignored before. Wails v3 was not used because it is still alpha.
+The tray uses [`fyne.io/systray`](https://github.com/fyne-io/systray) next to Wails v2. On macOS it joins Wails' main thread (`RunWithExternalLoop`); because `OnStartup` runs on a goroutine and AppKit only allows the status item to be created on the main thread, the start is dispatched there with GCD (`agent/desktop/mainthread_darwin.go`; other platforms call it directly). CI launches the built app for 15 s on both OSes to catch such crashes. On Windows it runs on its own goroutine locked to one OS thread with the library's own message loop (`systray.Run`): the tray's hidden window and its message loop must share a thread, and Wails' `OnStartup` goroutine has no loop, which is why clicks were ignored before. Wails v3 was not used because it is still alpha.
 
 ## Use (command line)
 
