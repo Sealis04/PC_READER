@@ -1,21 +1,60 @@
 import type { ScanPayload } from "@pcreader/contracts";
-import { and, asc, desc, eq, gte, isNull, lt, or, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, gte, ilike, isNull, lt, or, type SQL } from "drizzle-orm";
 import type { Db } from "@/db";
-import { assignments, components, deviceLogs, deviceRequests, devices, networkLogs, scans, users, type DeviceLog } from "@/db/schema";
+import {
+  assignments,
+  components,
+  deviceFieldHistory,
+  deviceLogs,
+  deviceRequests,
+  devices,
+  networkLogs,
+  scans,
+  statusHistory,
+  users,
+  type Device,
+  type DeviceLog,
+} from "@/db/schema";
 import { STALE_MS, type ConnectionState } from "@/lib/format";
 
-// One query for the whole list (no per-device lookups): the connection filter is a WHERE on
-// online / last_seen_at, which has an index.
-export async function listDevices(db: Db, filter?: ConnectionState, now = new Date()) {
+export interface DeviceListFilters {
+  connection?: ConnectionState;
+  status?: Device["status"];
+  department?: string;
+  os?: Device["osType"];
+  // Matches inventory number, hostname, serial number, and the assigned user's name or employee ID.
+  q?: string;
+}
+
+// One query for the whole list (no per-device lookups). The connection and status filters are
+// WHEREs on indexed columns; search is a case-insensitive substring match, which is cheap at the
+// expected scale (about 1,000 devices).
+export async function listDevices(db: Db, filters: DeviceListFilters = {}, now = new Date()) {
   const cutoff = new Date(now.getTime() - STALE_MS);
-  const where: SQL | undefined =
-    filter === "online"
+  const { connection, status, department, os } = filters;
+  const q = filters.q?.trim();
+  const pattern = q ? `%${q.replace(/[\\%_]/g, "\\$&")}%` : null;
+  const conditions: Array<SQL | undefined> = [
+    connection === "online"
       ? eq(devices.online, true)
-      : filter === "offline"
+      : connection === "offline"
         ? and(eq(devices.online, false), gte(devices.lastSeenAt, cutoff))
-        : filter === "stale"
+        : connection === "stale"
           ? and(eq(devices.online, false), or(isNull(devices.lastSeenAt), lt(devices.lastSeenAt, cutoff)))
-          : undefined;
+          : undefined,
+    status ? eq(devices.status, status) : undefined,
+    os ? eq(devices.osType, os) : undefined,
+    department ? eq(users.department, department) : undefined,
+    pattern
+      ? or(
+          ilike(devices.inventoryNumber, pattern),
+          ilike(devices.hostname, pattern),
+          ilike(devices.serialNumber, pattern),
+          ilike(users.fullName, pattern),
+          ilike(users.employeeId, pattern),
+        )
+      : undefined,
+  ];
   return db
     .select({
       id: devices.id,
@@ -26,18 +65,26 @@ export async function listDevices(db: Db, filter?: ConnectionState, now = new Da
       serialNumber: devices.serialNumber,
       status: devices.status,
       inventoryNumber: devices.inventoryNumber,
+      location: devices.location,
       lastSeenAt: devices.lastSeenAt,
       lastFullScanAt: devices.lastFullScanAt,
       online: devices.online,
       agentVersion: devices.agentVersion,
       userName: users.fullName,
+      employeeId: users.employeeId,
       department: users.department,
     })
     .from(devices)
     .leftJoin(assignments, and(eq(assignments.deviceId, devices.id), isNull(assignments.endAt)))
     .leftJoin(users, eq(users.id, assignments.userId))
-    .where(where)
+    .where(and(...conditions))
     .orderBy(asc(devices.hostname));
+}
+
+// Departments of currently assigned users, for the list's department filter.
+export async function listDepartments(db: Db): Promise<string[]> {
+  const rows = await db.selectDistinct({ department: users.department }).from(users).orderBy(asc(users.department));
+  return rows.map((r) => r.department);
 }
 
 export type DeviceListRow = Awaited<ReturnType<typeof listDevices>>[number];
@@ -108,4 +155,37 @@ export async function getNetworkHistory(db: Db, deviceId: string) {
     .where(eq(networkLogs.deviceId, deviceId))
     .orderBy(desc(networkLogs.collectedAt))
     .limit(NETWORK_LIMIT);
+}
+
+export type HistoryEvent = {
+  at: Date;
+  kind: "status" | "inventory_number" | "location" | "assigned" | "unassigned";
+  from: string | null;
+  to: string | null;
+  reason: string | null;
+  by: string | null;
+};
+
+// One timeline of status, inventory number, location and assignment changes, newest first. The
+// initial state (no number, status "in use") has no rows; assignments come from the assignments table.
+export async function getDeviceHistory(db: Db, deviceId: string): Promise<HistoryEvent[]> {
+  const [statuses, fields, assigned] = await Promise.all([
+    db.select().from(statusHistory).where(eq(statusHistory.deviceId, deviceId)),
+    db.select().from(deviceFieldHistory).where(eq(deviceFieldHistory.deviceId, deviceId)),
+    db
+      .select({ startAt: assignments.startAt, endAt: assignments.endAt, assignedBy: assignments.assignedBy, notes: assignments.notes, userName: users.fullName, employeeId: users.employeeId })
+      .from(assignments)
+      .innerJoin(users, eq(users.id, assignments.userId))
+      .where(eq(assignments.deviceId, deviceId)),
+  ]);
+  const events: HistoryEvent[] = [
+    ...statuses.map((r): HistoryEvent => ({ at: r.changedAt, kind: "status", from: r.oldStatus, to: r.newStatus, reason: r.reason, by: r.changedBy })),
+    ...fields.map((r): HistoryEvent => ({ at: r.changedAt, kind: r.field, from: r.oldValue, to: r.newValue, reason: r.reason, by: r.changedBy })),
+  ];
+  for (const a of assigned) {
+    const who = `${a.userName} (${a.employeeId})`;
+    events.push({ at: a.startAt, kind: "assigned", from: null, to: who, reason: a.notes, by: a.assignedBy });
+    if (a.endAt) events.push({ at: a.endAt, kind: "unassigned", from: who, to: null, reason: null, by: null });
+  }
+  return events.sort((x, y) => y.at.getTime() - x.at.getTime());
 }

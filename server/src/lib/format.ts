@@ -1,4 +1,4 @@
-const TIME_ZONE = process.env.DISPLAY_TIMEZONE || "Asia/Manila";
+export const TIME_ZONE = process.env.DISPLAY_TIMEZONE || "Asia/Manila";
 
 const dateTime = new Intl.DateTimeFormat("en-PH", {
   timeZone: TIME_ZONE,

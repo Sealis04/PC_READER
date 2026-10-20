@@ -42,12 +42,12 @@ describe("listDevices connection filter", () => {
     await registerWith("windows-desktop", "B-OFFLINE", { online: false, lastSeenAt: hoursAgo(5) });
     await registerWith("windows-desktop", "C-STALE", { online: false, lastSeenAt: hoursAgo(100) });
     await registerWith("windows-desktop", "D-NEVER", { online: false, lastSeenAt: null });
-    const names = async (f?: "online" | "offline" | "stale") => (await listDevices(getDb(), f, now)).map((d) => d.hostname);
+    const names = async (f?: "online" | "offline" | "stale") => (await listDevices(getDb(), { connection: f }, now)).map((d) => d.hostname);
     expect(await names()).toEqual(["A-ONLINE", "B-OFFLINE", "C-STALE", "D-NEVER"]);
     expect(await names("online")).toEqual(["A-ONLINE"]);
     expect(await names("offline")).toEqual(["B-OFFLINE"]);
     expect(await names("stale")).toEqual(["C-STALE", "D-NEVER"]);
-    const [first] = await listDevices(getDb(), "online", now);
+    const [first] = await listDevices(getDb(), { connection: "online" }, now);
     expect(first).toMatchObject({ online: true, agentVersion: "0.3.0" });
   });
 });

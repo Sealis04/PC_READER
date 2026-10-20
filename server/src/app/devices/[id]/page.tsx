@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getDb } from "@/db";
 import type { Component } from "@/db/schema";
+import { InventoryPanel } from "../_components/inventory-panel";
 import { RequestActions, type RequestRow } from "../_components/request-actions";
 import {
   CATEGORY_LABEL,
@@ -16,7 +17,7 @@ import {
   STATUS_LABEL,
 } from "@/lib/format";
 import { REQUEST_TYPES } from "@/lib/requests";
-import { getDeviceDetail, getDeviceLogs, getLatestRequests, getNetworkHistory, LOG_LIMIT, NETWORK_LIMIT } from "@/lib/queries";
+import { getDeviceDetail, getDeviceHistory, getDeviceLogs, getLatestRequests, getNetworkHistory, LOG_LIMIT, NETWORK_LIMIT } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
 
@@ -46,6 +47,21 @@ function componentSummary(c: Component): string {
   }
 }
 
+const BAD_STATUS = new Set(["for_disposal", "disposed", "lost"]);
+
+const HISTORY_LABEL = {
+  status: "Status",
+  inventory_number: "Inventory number",
+  location: "Location",
+  assigned: "Assigned to",
+  unassigned: "Unassigned from",
+} as const;
+
+function historyValue(kind: string, v: string | null): string {
+  if (v === null) return "none";
+  return kind === "status" ? (STATUS_LABEL[v as keyof typeof STATUS_LABEL] ?? v) : v;
+}
+
 const LEVELS = ["error", "warning", "info"] as const;
 
 export default async function DevicePage({
@@ -62,7 +78,12 @@ export default async function DevicePage({
   const detail = await getDeviceDetail(db, id);
   if (!detail) notFound();
   const level = LEVELS.find((l) => l === levelParam);
-  const [latestRequests, logs, network] = await Promise.all([getLatestRequests(db, id), getDeviceLogs(db, id, level), getNetworkHistory(db, id)]);
+  const [latestRequests, logs, network, history] = await Promise.all([
+    getLatestRequests(db, id),
+    getDeviceLogs(db, id, level),
+    getNetworkHistory(db, id),
+    getDeviceHistory(db, id),
+  ]);
   const requestRows: RequestRow[] = REQUEST_TYPES.map((type) => {
     const r = latestRequests.get(type);
     const when = r ? (r.completedAt ?? r.deliveredAt ?? r.createdAt) : null;
@@ -87,11 +108,22 @@ export default async function DevicePage({
         </p>
         <h1>{device.hostname}</h1>
         <p className="sub">
+          <span className="mono">{device.inventoryNumber ?? "No number yet"}</span> ·{" "}
           {OS_LABEL[device.osType]} · {[device.manufacturer, device.model].filter(Boolean).join(" ") || "Unknown model"} ·{" "}
-          <span className="pill">{STATUS_LABEL[device.status]}</span>{" "}
+          <span className={`pill${BAD_STATUS.has(device.status) ? " status-bad" : ""}`}>{STATUS_LABEL[device.status]}</span>{" "}
           <span className={`pill ${state === "online" ? "ok" : state === "stale" ? "warn" : "off"}`}>{CONNECTION_LABEL[state]}</span>
         </p>
       </div>
+
+      <section>
+        <h2>Inventory</h2>
+        <div className="panel pad">
+          <InventoryPanel deviceId={device.id} inventoryNumber={device.inventoryNumber} status={device.status} location={device.location} />
+          <p className="sub">
+            {device.inventoryNumber ? <Link href={`/devices/${device.id}/label`}>Print label</Link> : "Assign a number to print its label."}
+          </p>
+        </div>
+      </section>
 
       <section>
         <h2>Requests</h2>
@@ -133,6 +165,8 @@ export default async function DevicePage({
             <dd className="mono">{device.serialNumber ?? "—"}</dd>
             <dt>Inventory no.</dt>
             <dd className="mono">{device.inventoryNumber ?? "Not tagged"}</dd>
+            <dt>Location</dt>
+            <dd>{device.location ?? "—"}</dd>
             <dt>OS</dt>
             <dd>{p ? [p.system.os_name, p.system.os_version, p.system.os_build && `(${p.system.os_build})`].filter(Boolean).join(" ") : "—"}</dd>
             <dt>Firmware</dt>
@@ -148,6 +182,37 @@ export default async function DevicePage({
           </dl>
         </section>
       </div>
+
+      <section>
+        <h2>History</h2>
+        <div className="panel pad">
+          {history.length === 0 ? (
+            <p className="sub">No changes recorded yet.</p>
+          ) : (
+            <ul className="timeline">
+              {history.map((h, i) => (
+                <li key={i}>
+                  <span className="num sub">{formatDateTime(h.at)}</span>
+                  <span>
+                    {HISTORY_LABEL[h.kind]}:{" "}
+                    {h.kind === "assigned" ? (
+                      h.to
+                    ) : h.kind === "unassigned" ? (
+                      h.from
+                    ) : (
+                      <>
+                        {historyValue(h.kind, h.from)} → <strong>{historyValue(h.kind, h.to)}</strong>
+                      </>
+                    )}
+                    {h.reason && <span className="sub"> · {h.reason}</span>}
+                    {h.by && <span className="sub"> · by {h.by}</span>}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </section>
 
       <section>
         <h2>Components</h2>

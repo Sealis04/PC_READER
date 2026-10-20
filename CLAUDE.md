@@ -1,6 +1,6 @@
 # PC_READER
 
-Internal device-inventory tool. A Go reporter CLI on agency Windows/Mac PCs sends hardware scans to a Next.js + PostgreSQL server with a staff dashboard. Design: `docs/technical-spec.md`. Current milestone plan: `plans/m3-background-reporter/plan.md`. Agent coordination: `plans/<branch>/INBOX.md`.
+Internal device-inventory tool. A Go reporter CLI on agency Windows/Mac PCs sends hardware scans to a Next.js + PostgreSQL server with a staff dashboard. Design: `docs/technical-spec.md`. Current milestone plan: `plans/m4-inventory-tags/plan.md`. Agent coordination: `plans/<branch>/INBOX.md`.
 
 ## Layout
 
@@ -34,3 +34,5 @@ Internal device-inventory tool. A Go reporter CLI on agency Windows/Mac PCs send
 - No polling: PCs hold one SSE connection (`/api/agent/events`); scans and log uploads happen only on request. Online = stream open (`devices.online`, `connection_id` guards against an old stream flipping a reconnected device offline); Stale = offline over 48 h. The server assumes one instance (in-process notifier, DB is the source of truth).
 - Logs are confirm-then-clear: the agent deletes only the `local_entry_id`s the server returns. Never put tokens or personal details in a log message.
 - Raw scanner output → payload changes must keep `contracts/fixtures/payload/windows-desktop.json` and `macos-apple-silicon.json` as the exact parser output for `fixtures/raw/{windows,macos}`.
+- Inventory numbers: `IA-YYYY-NNNNN` (year in `DISPLAY_TIMEZONE`), issued only through `server/src/lib/inventory.ts` (locks the device row, raises `inventory_counters`, writes history). Never update `devices.inventory_number`, `status` or `location` directly; history tables are append-only. See the README section "Inventory numbers, statuses and labels".
+

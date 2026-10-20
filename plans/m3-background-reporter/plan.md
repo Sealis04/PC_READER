@@ -92,3 +92,6 @@ Prove it with the CI desktop build on both runners before building the rest of s
 - Long-lived connections through proxies or sleep → heartbeat comments, reconnect with backoff, server marks offline on close.
 - Next.js route handlers and streaming → Node runtime, no caching, tested in the integration suite and in Docker Compose.
 - Users can still end the app in Task Manager or remove the login item → shows as Offline/Stale; acceptable for M3.
+
+## Result
+Built in two rounds (PR #6, then #7 with the Windows tray-click fix and the NSIS installer) and merged into `ccr-510da39c-6w5qgz`. Tested by the user on a real Windows PC (2026-10-19). Open: Mac real-machine test of the tray and start at login.
