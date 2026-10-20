@@ -2,6 +2,7 @@ import Link from "next/link";
 import { getDb } from "@/db";
 import { CONNECTION_LABEL, connectionState, formatDateTime, OS_LABEL, STATUS_LABEL, type ConnectionState } from "@/lib/format";
 import { DEVICE_STATUSES, isDeviceStatus } from "@/lib/inventory";
+import { isValidDate, listFields } from "@/lib/custom-fields";
 import { listDepartments, listDevices } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
@@ -21,7 +22,7 @@ function ConnectionPill({ device }: { device: { online: boolean; lastSeenAt: Dat
 
 const BAD_STATUS = new Set(["for_disposal", "disposed", "lost"]);
 
-type Params = { connection?: string; status?: string; department?: string; os?: string; q?: string };
+type Params = { connection?: string; status?: string; department?: string; os?: string; q?: string; df?: string; after?: string; before?: string };
 
 export default async function DevicesPage({ searchParams }: { searchParams: Promise<Params> }) {
   const params = await searchParams;
@@ -31,13 +32,18 @@ export default async function DevicesPage({ searchParams }: { searchParams: Prom
   const department = params.department || undefined;
   const q = params.q?.trim() || undefined;
   const db = getDb();
-  const [rows, departments] = await Promise.all([listDevices(db, { connection: filter, status, os, department, q }), listDepartments(db)]);
-  const filtered = Boolean(filter || status || os || department || q);
+  const dateFields = (await listFields(db)).filter((f) => f.type === "date");
+  const dateField = dateFields.find((f) => f.id === params.df);
+  const after = params.after && isValidDate(params.after) ? params.after : undefined;
+  const before = params.before && isValidDate(params.before) ? params.before : undefined;
+  const dateFilter = dateField && (after || before) ? { fieldId: dateField.id, after, before } : undefined;
+  const [rows, departments] = await Promise.all([listDevices(db, { connection: filter, status, os, department, q, dateField: dateFilter }), listDepartments(db)]);
+  const filtered = Boolean(filter || status || os || department || q || dateFilter);
   // Connection links keep the other filters.
   const href = (conn?: string) => {
     const sp = new URLSearchParams();
     if (conn) sp.set("connection", conn);
-    for (const [k, v] of Object.entries({ status, department, os, q })) if (v) sp.set(k, v);
+    for (const [k, v] of Object.entries({ status, department, os, q, df: dateFilter?.fieldId, after: dateFilter?.after, before: dateFilter?.before })) if (v) sp.set(k, v);
     const qs = sp.toString();
     return qs ? `/devices?${qs}` : "/devices";
   };
@@ -53,7 +59,7 @@ export default async function DevicesPage({ searchParams }: { searchParams: Prom
           {filter && <input type="hidden" name="connection" value={filter} />}
           <label>
             Search
-            <input type="search" name="q" defaultValue={q} placeholder="Number, hostname, user, employee ID, serial" style={{ minWidth: 300 }} />
+            <input type="search" name="q" defaultValue={q} placeholder="Number, hostname, user, serial, custom text fields" style={{ minWidth: 300 }} />
           </label>
           <label>
             Status
@@ -85,6 +91,29 @@ export default async function DevicesPage({ searchParams }: { searchParams: Prom
               <option value="macos">{OS_LABEL.macos}</option>
             </select>
           </label>
+          {dateFields.length > 0 && (
+            <>
+              <label>
+                Date field
+                <select name="df" defaultValue={dateField?.id ?? ""}>
+                  <option value="">None</option>
+                  {dateFields.map((f) => (
+                    <option key={f.id} value={f.id}>
+                      {f.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                On or after
+                <input type="date" name="after" defaultValue={after} style={{ minWidth: 0 }} />
+              </label>
+              <label>
+                On or before
+                <input type="date" name="before" defaultValue={before} style={{ minWidth: 0 }} />
+              </label>
+            </>
+          )}
           <button type="submit" className="btn">
             Apply
           </button>
