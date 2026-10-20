@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import QRCode from "qrcode";
 import { getDb } from "@/db";
+import { requireStaff } from "@/lib/staff-auth";
 import { devices } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { PrintButton } from "../../_components/print-button";
@@ -13,6 +14,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 // Sticker label: the QR code encodes the inventory number only (generated here, no external service).
 export default async function LabelPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  await requireStaff(`/devices/${id}/label`);
   if (!UUID_RE.test(id)) notFound();
   const [device] = await getDb().select().from(devices).where(eq(devices.id, id)).limit(1);
   if (!device) notFound();

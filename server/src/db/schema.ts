@@ -101,7 +101,7 @@ export const devices = pgTable(
   ],
 );
 
-// Append-only: one row per device status change (changed_by is null until the dashboard has staff login).
+// Append-only: one row per device status change (changed_by is the staff_user id; null for older rows).
 export const statusHistory = pgTable(
   "status_history",
   {
@@ -166,6 +166,8 @@ export const secretAccessLog = pgTable(
     action: secretAction("action").notNull(),
     success: boolean("success").notNull(),
     clientIp: text("client_ip"),
+    // The signed-in staff member (staff_user.id); null for rows written before staff login existed.
+    staffUserId: text("staff_user_id").references(() => staffUser.id),
     accessedAt: timestamp("accessed_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("secret_access_log_device_idx").on(t.deviceId, t.accessedAt)],
@@ -251,7 +253,7 @@ export const assignments = pgTable(
       .references(() => users.id),
     startAt: timestamp("start_at", { withTimezone: true }).notNull().defaultNow(),
     endAt: timestamp("end_at", { withTimezone: true }),
-    // Staff member for dashboard changes; "self-registration" when set by the agent.
+    // The staff_user id for dashboard changes; "self-registration" / "self-service" when set by the agent.
     assignedBy: text("assigned_by").notNull(),
     notes: text("notes"),
   },
@@ -292,7 +294,7 @@ export const deviceRequests = pgTable(
     completedAt: timestamp("completed_at", { withTimezone: true }),
     scanId: uuid("scan_id").references(() => scans.id, { onDelete: "set null" }),
     message: text("message"),
-    // Null until the dashboard has staff login.
+    // The staff_user id; null for requests made before the dashboard had a login.
     requestedBy: text("requested_by"),
   },
   (t) => [
@@ -369,6 +371,89 @@ export const settingsUnlockAttempts = pgTable(
     index("settings_unlock_attempts_device_idx").on(t.deviceId, t.attemptedAt),
     index("settings_unlock_attempts_ip_idx").on(t.clientIp, t.attemptedAt),
   ],
+);
+
+// Staff accounts for the dashboard (Better Auth, HRIS as the OIDC provider). Prefixed `staff_` so they
+// stay apart from `users` (the PCs' people). hris_sub is the join key; staff rows are never deleted.
+export const staffUser = pgTable("staff_user", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  email: text("email").notNull().unique(),
+  emailVerified: boolean("email_verified").notNull().default(false),
+  image: text("image"),
+  hrisSub: text("hris_sub").notNull().unique(),
+  employeeNumber: text("employee_number"),
+  hrisUserLevel: text("hris_user_level"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const staffSession = pgTable(
+  "staff_session",
+  {
+    id: text("id").primaryKey(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    token: text("token").notNull().unique(),
+    ipAddress: text("ip_address"),
+    userAgent: text("user_agent"),
+    userId: text("user_id")
+      .notNull()
+      .references(() => staffUser.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("staff_session_user_idx").on(t.userId)],
+);
+
+export const staffAccount = pgTable(
+  "staff_account",
+  {
+    id: text("id").primaryKey(),
+    accountId: text("account_id").notNull(),
+    providerId: text("provider_id").notNull(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => staffUser.id, { onDelete: "cascade" }),
+    accessToken: text("access_token"),
+    refreshToken: text("refresh_token"),
+    idToken: text("id_token"),
+    accessTokenExpiresAt: timestamp("access_token_expires_at", { withTimezone: true }),
+    refreshTokenExpiresAt: timestamp("refresh_token_expires_at", { withTimezone: true }),
+    scope: text("scope"),
+    password: text("password"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("staff_account_user_idx").on(t.userId)],
+);
+
+export const staffVerification = pgTable(
+  "staff_verification",
+  {
+    id: text("id").primaryKey(),
+    identifier: text("identifier").notNull(),
+    value: text("value").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("staff_verification_identifier_idx").on(t.identifier)],
+);
+
+export const staffEventType = pgEnum("staff_event_type", ["login", "login_denied", "logout", "it_pin_rotated", "settings_changed", "logo_changed"]);
+
+// Append-only: who signed in or changed something on the dashboard. Never holds tokens, codes or the PIN.
+export const staffEvents = pgTable(
+  "staff_events",
+  {
+    ...base,
+    staffUserId: text("staff_user_id").references(() => staffUser.id),
+    hrisSub: text("hris_sub"),
+    type: staffEventType("type").notNull(),
+    detail: text("detail"),
+    clientIp: text("client_ip"),
+  },
+  (t) => [index("staff_events_created_idx").on(t.createdAt)],
 );
 
 export type Device = typeof devices.$inferSelect;

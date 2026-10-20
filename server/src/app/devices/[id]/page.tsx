@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getDb } from "@/db";
+import { requireStaff } from "@/lib/staff-auth";
 import type { Component } from "@/db/schema";
 import { CustomFieldsPanel, type FieldRow } from "../_components/custom-fields-panel";
 import { InventoryPanel } from "../_components/inventory-panel";
@@ -79,6 +80,7 @@ export default async function DevicePage({
   searchParams: Promise<{ level?: string }>;
 }) {
   const { id } = await params;
+  await requireStaff(`/devices/${id}`);
   const { level: levelParam } = await searchParams;
   if (!UUID_RE.test(id)) notFound();
   const db = getDb();
@@ -250,6 +252,7 @@ export default async function DevicePage({
                   <span className="num sub">{formatDateTime(l.accessedAt)}</span>
                   <span>
                     <span className={`pill${l.success ? "" : " warn"}`}>{l.success ? "Allowed" : "Refused"}</span> {SECRET_ACTION_LABEL[l.action]} <strong>{l.fieldName}</strong>
+                    {l.staffName && <span className="sub"> · by {l.staffName}</span>}
                     {l.clientIp && <span className="sub"> · from {l.clientIp}</span>}
                   </span>
                 </li>

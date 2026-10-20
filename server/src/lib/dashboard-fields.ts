@@ -86,28 +86,28 @@ export async function handleDeviceFields(db: Db, deviceId: string): Promise<Resp
 }
 
 // PUT /api/dashboard/devices/{id}/fields/{fieldId} { value: string | null, reason? } — text and date fields.
-export async function handleSetFieldValue(req: Request, db: Db, deviceId: string, fieldId: string): Promise<Response> {
+export async function handleSetFieldValue(req: Request, db: Db, deviceId: string, fieldId: string, staffId: string): Promise<Response> {
   const b = await body(req);
   if (b instanceof Response) return b;
   if (!UUID_RE.test(deviceId) || !UUID_RE.test(fieldId)) return badId();
   if (b.reason !== undefined && b.reason !== null && typeof b.reason !== "string") return errorResponse(400, "invalid_payload", "reason must be a string");
-  return guard(async () => jsonResponse(await setFieldValue(db, deviceId, fieldId, (b.value ?? null) as string | null, b.reason as string | null | undefined)));
+  return guard(async () => jsonResponse(await setFieldValue(db, deviceId, fieldId, (b.value ?? null) as string | null, b.reason as string | null | undefined, staffId)));
 }
 
 // PUT /api/dashboard/devices/{id}/fields/{fieldId}/secret { value: string | null, pin } — needs the IT PIN.
 // 403 wrong_pin / 429 too_many_attempts as everywhere else; 503 when SECRETS_KEY is missing.
-export async function handleSetSecret(req: Request, db: Db, deviceId: string, fieldId: string): Promise<Response> {
+export async function handleSetSecret(req: Request, db: Db, deviceId: string, fieldId: string, staffId: string): Promise<Response> {
   const b = await body(req);
   if (b instanceof Response) return b;
   if (!UUID_RE.test(deviceId) || !UUID_RE.test(fieldId)) return badId();
-  return guard(async () => jsonResponse(await setSecret(db, deviceId, fieldId, (b.value ?? null) as string | null, b.pin, clientIp(req))));
+  return guard(async () => jsonResponse(await setSecret(db, deviceId, fieldId, (b.value ?? null) as string | null, b.pin, clientIp(req), staffId)));
 }
 
 // POST /api/dashboard/devices/{id}/fields/{fieldId}/reveal { pin } → { value }. The only response that
 // ever carries a secret; the value is not logged anywhere, the access is.
-export async function handleRevealSecret(req: Request, db: Db, deviceId: string, fieldId: string): Promise<Response> {
+export async function handleRevealSecret(req: Request, db: Db, deviceId: string, fieldId: string, staffId: string): Promise<Response> {
   const b = await body(req);
   if (b instanceof Response) return b;
   if (!UUID_RE.test(deviceId) || !UUID_RE.test(fieldId)) return badId();
-  return guard(async () => jsonResponse(await revealSecret(db, deviceId, fieldId, b.pin, clientIp(req))));
+  return guard(async () => jsonResponse(await revealSecret(db, deviceId, fieldId, b.pin, clientIp(req), staffId)));
 }

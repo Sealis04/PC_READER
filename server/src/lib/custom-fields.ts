@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import type { Db } from "@/db";
-import { customFields, deviceFieldHistory, deviceFieldValues, devices, secretAccessLog, type CustomField, type SecretAccessLogRow } from "@/db/schema";
+import { customFields, deviceFieldHistory, deviceFieldValues, devices, secretAccessLog, staffUser, type CustomField, type SecretAccessLogRow } from "@/db/schema";
 import { verifyPin, type PinMethod, type VerifyResult } from "@/lib/it-pin";
 import { decryptSecret, encryptSecret, secretsDisabledReason, SecretsDecryptError } from "@/lib/secrets-crypto";
 
@@ -121,7 +121,7 @@ async function loadField(tx: Db | Tx, id: string): Promise<CustomField> {
 
 // Sets (or, with null / an empty string, clears) a text or date value and records the old and new
 // value in the device history. Secrets go through setSecret instead.
-export async function setFieldValue(db: Db, deviceId: string, fieldId: string, value: string | null, reason?: string | null): Promise<{ changed: boolean }> {
+export async function setFieldValue(db: Db, deviceId: string, fieldId: string, value: string | null, reason?: string | null, staffId: string | null = null): Promise<{ changed: boolean }> {
   if (value !== null && typeof value !== "string") throw new FieldError(400, "invalid_payload", "value must be a string or null");
   const clean = value?.trim() || null;
   return db.transaction(async (tx) => {
@@ -144,7 +144,7 @@ export async function setFieldValue(db: Db, deviceId: string, fieldId: string, v
       .insert(deviceFieldValues)
       .values({ deviceId, fieldId, ...column })
       .onConflictDoUpdate({ target: [deviceFieldValues.deviceId, deviceFieldValues.fieldId], set: { ...column, updatedAt: new Date() } });
-    await tx.insert(deviceFieldHistory).values({ deviceId, field: "custom_field", customFieldId: fieldId, oldValue: old, newValue: clean, reason: reason?.trim().slice(0, 500) || null });
+    await tx.insert(deviceFieldHistory).values({ deviceId, field: "custom_field", customFieldId: fieldId, oldValue: old, newValue: clean, reason: reason?.trim().slice(0, 500) || null, changedBy: staffId });
     return { changed: true };
   });
 }
@@ -177,29 +177,30 @@ export async function getDeviceFields(db: Db, deviceId: string): Promise<DeviceF
 
 const SECRET_LOG_LIMIT = 20;
 
-export async function getSecretAccessLog(db: Db, deviceId: string): Promise<Array<SecretAccessLogRow & { fieldName: string }>> {
+export async function getSecretAccessLog(db: Db, deviceId: string): Promise<Array<SecretAccessLogRow & { fieldName: string; staffName: string | null }>> {
   const rows = await db
-    .select({ row: secretAccessLog, fieldName: customFields.name })
+    .select({ row: secretAccessLog, fieldName: customFields.name, staffName: staffUser.name })
     .from(secretAccessLog)
     .innerJoin(customFields, eq(customFields.id, secretAccessLog.fieldId))
+    .leftJoin(staffUser, eq(staffUser.id, secretAccessLog.staffUserId))
     .where(eq(secretAccessLog.deviceId, deviceId))
     .orderBy(desc(secretAccessLog.accessedAt))
     .limit(SECRET_LOG_LIMIT);
-  return rows.map((r) => ({ ...r.row, fieldName: r.fieldName }));
+  return rows.map((r) => ({ ...r.row, fieldName: r.fieldName, staffName: r.staffName }));
 }
 
 const contextOf = (deviceId: string, fieldId: string) => `${deviceId}:${fieldId}`;
 
 // Shared by reveal and set: the checks that do not depend on the PIN, then the PIN itself. Every
 // outcome is logged (never the value); a wrong PIN or rate limit throws PinRefused.
-async function authorizeSecret(db: Db, deviceId: string, fieldId: string, pin: unknown, action: SecretAccessLogRow["action"], method: PinMethod, clientIp: string | null): Promise<CustomField> {
+async function authorizeSecret(db: Db, deviceId: string, fieldId: string, pin: unknown, action: SecretAccessLogRow["action"], method: PinMethod, clientIp: string | null, staffId: string | null): Promise<CustomField> {
   const unavailable = secretsDisabledReason();
   if (unavailable) throw new FieldError(503, "secrets_unavailable", unavailable);
   const [device] = await db.select({ id: devices.id }).from(devices).where(eq(devices.id, deviceId));
   if (!device) throw new FieldError(404, "not_found", "No such device");
   const field = await loadField(db, fieldId);
   if (field.type !== "secret") throw new FieldError(400, "invalid_payload", "This is not a secret field");
-  const log = (success: boolean) => db.insert(secretAccessLog).values({ deviceId, fieldId, action, success, clientIp });
+  const log = (success: boolean) => db.insert(secretAccessLog).values({ deviceId, fieldId, action, success, clientIp, staffUserId: staffId });
   if (typeof pin !== "string" || !pin) {
     await log(false);
     throw new PinRefused("wrong_pin");
@@ -214,11 +215,11 @@ async function authorizeSecret(db: Db, deviceId: string, fieldId: string, pin: u
 
 // Sets (or, with null, clears) a device's secret. Needs the current IT PIN; the history row says only
 // that it changed.
-export async function setSecret(db: Db, deviceId: string, fieldId: string, value: string | null, pin: unknown, clientIp: string | null = null): Promise<{ changed: true }> {
+export async function setSecret(db: Db, deviceId: string, fieldId: string, value: string | null, pin: unknown, clientIp: string | null = null, staffId: string | null = null): Promise<{ changed: true }> {
   if (value !== null && typeof value !== "string") throw new FieldError(400, "invalid_payload", "value must be a string or null");
   if (value !== null && value.length > MAX_SECRET_LENGTH) throw new FieldError(400, "invalid_payload", `The secret must be at most ${MAX_SECRET_LENGTH} characters`);
   const clear = value === null || value === "";
-  const field = await authorizeSecret(db, deviceId, fieldId, pin, clear ? "clear" : "set", "set_secret", clientIp);
+  const field = await authorizeSecret(db, deviceId, fieldId, pin, clear ? "clear" : "set", "set_secret", clientIp, staffId);
   if (field.archivedAt) throw new FieldError(409, "conflict", "This field is archived");
   await db.transaction(async (tx) => {
     await lockDevice(tx, deviceId);
@@ -228,15 +229,15 @@ export async function setSecret(db: Db, deviceId: string, fieldId: string, value
       .insert(deviceFieldValues)
       .values({ deviceId, fieldId, ...columns })
       .onConflictDoUpdate({ target: [deviceFieldValues.deviceId, deviceFieldValues.fieldId], set: { ...columns, updatedAt: new Date() } });
-    await tx.insert(deviceFieldHistory).values({ deviceId, field: "custom_field", customFieldId: fieldId, reason: clear ? "Secret cleared" : "Secret changed" });
-    await tx.insert(secretAccessLog).values({ deviceId, fieldId, action: clear ? "clear" : "set", success: true, clientIp });
+    await tx.insert(deviceFieldHistory).values({ deviceId, field: "custom_field", customFieldId: fieldId, reason: clear ? "Secret cleared" : "Secret changed", changedBy: staffId });
+    await tx.insert(secretAccessLog).values({ deviceId, fieldId, action: clear ? "clear" : "set", success: true, clientIp, staffUserId: staffId });
   });
   return { changed: true };
 }
 
 // The only code path that returns a secret's plain value. Needs the current IT PIN and is logged.
-export async function revealSecret(db: Db, deviceId: string, fieldId: string, pin: unknown, clientIp: string | null = null): Promise<{ value: string }> {
-  await authorizeSecret(db, deviceId, fieldId, pin, "reveal", "reveal_secret", clientIp);
+export async function revealSecret(db: Db, deviceId: string, fieldId: string, pin: unknown, clientIp: string | null = null, staffId: string | null = null): Promise<{ value: string }> {
+  await authorizeSecret(db, deviceId, fieldId, pin, "reveal", "reveal_secret", clientIp, staffId);
   const [row] = await db
     .select()
     .from(deviceFieldValues)
@@ -249,6 +250,6 @@ export async function revealSecret(db: Db, deviceId: string, fieldId: string, pi
     if (e instanceof SecretsDecryptError) throw new FieldError(503, "secrets_unavailable", e.message);
     throw e;
   }
-  await db.insert(secretAccessLog).values({ deviceId, fieldId, action: "reveal", success: true, clientIp });
+  await db.insert(secretAccessLog).values({ deviceId, fieldId, action: "reveal", success: true, clientIp, staffUserId: staffId });
   return { value };
 }

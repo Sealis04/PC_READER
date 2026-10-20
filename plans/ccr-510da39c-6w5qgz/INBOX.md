@@ -3,8 +3,8 @@
 **Repository:** `Sealis04/PC_READER` — if your working directory is another repository, switch to a checkout of this one (`git remote -v`).
 **Feature branch:** `ccr-510da39c-6w5qgz`
 **Active builders:** builder-1 only
-**Reviewer:** not used for M5. **Do not fire the reviewer routine.** When done, open your PR and stop; the planner checks CI and reports to the user.
-**Milestone:** M5 — hourly IT PIN from the dashboard. Plan: [`plans/m5-hourly-it-pin/plan.md`](../m5-hourly-it-pin/plan.md). History: `plans/m{1..4}-*/inbox-log.md`.
+**Reviewer:** not used for M5–M7. **Do not fire the reviewer routine.** When done, open your PR and stop; the planner checks CI and reports to the user.
+**Milestone:** M7 — staff login with HRIS. Plan: [`plans/m7-hris-login/plan.md`](../m7-hris-login/plan.md). (Earlier: M5 [`plans/m5-hourly-it-pin/plan.md`](../m5-hourly-it-pin/plan.md).) History: `plans/m{1..4}-*/inbox-log.md`.
 
 ## Branch to work on (overrides the routine prompts)
 
@@ -17,6 +17,61 @@ Your session is assigned its own branch (e.g. `claude/<name>`) and must not push
 ## Repo conventions
 
 See the repo `CLAUDE.md`. In short: bun + Drizzle (no Prisma, no `db:push`; `cd server && bun run db:generate` after schema changes, `bun run db:migrate` to apply); Go tests with `-count=1`; `bun run lint` and `bun run test` from the root run everything (server tests need Postgres, `DATABASE_URL` defaults to `postgres://postgres@127.0.0.1:5432/pcreader_test`). The desktop app is its own Go module in `agent/desktop/` (Wails v2); shared logic lives in `agent/internal/` and is unit-tested on Linux.
+
+---
+
+## builder-1 — M7 FIX REQUEST (2026-10-20) — merge M6 into #18 — CURRENT TASK
+
+M6 (#17) is merged into `main`; #18 (M7, branch `claude/gracious-gates-sxedcy`) now conflicts and both add a migration `0007`. Work **on `claude/gracious-gates-sxedcy` itself** (push there; it is #18's head) — or, if your session can only push to its assigned branch, start it from `origin/claude/gracious-gates-sxedcy`, push it, and say so in your summary so the planner can repoint #18.
+
+Do exactly **v2** in [`plans/m7-hris-login/plan.md`](../m7-hris-login/plan.md): merge `origin/main` (merge commit, no rebase/force-push), keep M6's `0007_nostalgic_slayback`, regenerate M7's migration as `0008_*` via `bun run db:generate`, protect every M6 page/route with `requireStaff`/`requireStaffApi`, add `staff_user_id` to `secret_access_log` and staff id to M6 history writes, drop M6's "no login" accepted-risk docs, tests. When this INBOX conflicts, keep both sides' sections.
+
+**Done when:** `bun run lint` and `bun run test` pass, `db:generate` shows no drift, #18 shows no conflicts with `main`. Summary under `### From builder-1 (M7 v2)` below. Do not fire the reviewer.
+
+### From builder-1 (M7 v2)
+Merged `origin/main` (M6) into `claude/gracious-gates-sxedcy` with a merge commit; no rebase or force-push.
+- **Migrations:** M6's `0007_nostalgic_slayback` (+ snapshot) is identical to `main`. M7's `0007_sour_tempest` is gone; `bun run db:generate` produced `0008_mysterious_ben_urich` (staff tables + `secret_access_log.staff_user_id`). `db:generate` now reports no drift.
+- **Protection:** all 7 M6 routes call `requireStaffApi(req)`; the Fields page calls `requireStaff("/fields")` (the device page already did). The route sweep in `test/staff-protection.test.ts` picks them up automatically (its expected file list was extended).
+- **Who did it:** `secret_access_log.staff_user_id` is written on every reveal/set/clear attempt; `setFieldValue` / `setSecret` write `changed_by` in the history; the device page's *Secret access* list shows "by <name>" and the history shows the staff name for custom-field changes. Handlers `handleSetFieldValue/handleSetSecret/handleRevealSecret` take `staffId` as a last parameter. The IT PIN is still required to reveal or set a secret.
+- **Merge details:** layout nav has Devices, IT PIN, Fields, Settings (inside the staff-only block); `getDeviceHistory` joins both staff names and custom-field names; `resetDatabase` truncates staff and M6 tables; `settings.test.ts` takes main's "replay 0006's SQL" version; docker-compose has both the M7 login vars and `SECRETS_KEY`.
+- **Docs:** removed the "no dashboard login" accepted-risk text (README Fields section, Fields page, IT PIN page); kept the `SECRETS_KEY` notes; CLAUDE.md custom-fields and branding bullets updated.
+- **Tests:** new "custom field changes and secret access carry the staff id" test (route level); `custom-fields.test.ts` asserts staff id and name. The M6 routes 401 test comes from the sweep. 0007 → 0008 is exercised by `prepareDatabase`, which migrates a fresh DB through every migration; I did not add a separate upgrade test.
+- **Verified locally:** `bun run lint` OK, `bun run test` OK (server 182 pass, Go packages ok). Not verified: UI in a browser, desktop builds.
+
+---
+
+## builder-1 — M7 staff login with HRIS (2026-10-20) — DONE (#18)
+
+Base: `origin/claude/gracious-gates-sxedcy` = `main` (64aef0f, includes #16 branding) + this plan and INBOX. `git fetch origin claude/gracious-gates-sxedcy && git checkout -B <your-assigned-branch> origin/claude/gracious-gates-sxedcy`, push only to your assigned branch, and **open your PR into `main`**. This section overrides the "Branch to work on" steps above.
+
+Full plan: [`plans/m7-hris-login/plan.md`](../m7-hris-login/plan.md) — read it all; decisions there are final. Summary:
+
+- Dashboard login with **Better Auth** on the PC_READER server, **HRIS as the OIDC provider** (`genericOAuth`, `providerId: "hris"`, discovery `${HRIS_URL}/.well-known/openid-configuration`, PKCE, scopes `openid profile email account_level`). HRIS needs no code changes; its contract is `docs/oauth-integration.md` in `Sealis04/hris` (read-only for you).
+- Only `hris:user_level` in `HRIS_ALLOWED_USER_LEVELS` (default `IT`) gets a session; denied sign-ins are logged and get a clear message.
+- Whole dashboard protected (pages + `/api/dashboard/*`) via `proxy.ts` + server-side `requireStaff` helpers; `/api/agent/*`, `/api/branding*`, `/api/auth/*`, `/login` stay open. Fail closed (503 / "Login is not configured") when auth env is missing.
+- Better Auth tables prefixed `staff_` (don't touch `users`); append-only `staff_events`.
+- Fill `changed_by` / `requested_by` / dashboard `assigned_by` with the staff id; history shows the staff name.
+- Tests incl. a sweep that every dashboard route returns 401 without a session. Docs: README, `.env.example`, `docker-compose.yml`, `CLAUDE.md`, spec line.
+
+Work in the plan's order with separate commits (schema+core, protection, who-did-it, tests, docs). Only you are building; no shared-file split needed. No agent / desktop / contracts changes.
+
+**Done when:** `bun run lint` and `bun run test` pass locally. Write a short summary under `### From builder-1` below (what was done, how to register the client in HRIS, anything the user must test by hand). Do not fire the reviewer.
+
+### From builder-1
+
+Five commits on `claude/gracious-gates-sxedcy` (schema+core, protection, who-did-it, tests, docs), PR into `main`.
+
+**Done.** Better Auth (1.5.6, same major as HRIS) with `genericOAuth` provider `hris` (discovery, PKCE, scopes `openid profile email account_level`). Gate in `databaseHooks.session.create.before`: only `hris:user_level` in `HRIS_ALLOWED_USER_LEVELS` (default `IT`) gets a session; denied sign-ins write `login_denied` and the callback redirects to `/login?error=not_allowed`. Migration `0007_sour_tempest` adds `staff_user/session/account/verification` and append-only `staff_events`. Every dashboard page calls `requireStaff()`, every `/api/dashboard/*` handler `requireStaffApi(req)` (401, or 503 when the login env is missing); `src/proxy.ts` is the cookie pre-check only. Staff id goes into `changed_by` / `requested_by`; history shows the staff name; `/settings` has a read-only Staff activity list; top bar has name + Sign out. No agent/desktop/contracts changes.
+
+**Verified locally:** `bun run lint`, `bun run test` (server 164 incl. a mock-HRIS full sign-in/callback flow, route sweep for 401/503, proxy, who-did-it; contracts 42; Go all ok), `next build`, and a live `next start` check with no login env (pages redirect to `/login`, `/api/dashboard/*` 503, `/api/branding` 200, "Login is not configured" shown).
+
+**Not verified:** a real HRIS sign-in (the mock returns an unsigned id_token; Better Auth reads claims from the id_token it gets over the back channel and does not check the signature), browser look of `/login` and the top bar.
+
+**Register the client in HRIS** (`/admin/oauth-clients`): confidential; redirect URI exactly `<BETTER_AUTH_URL>/api/auth/oauth2/callback/hris`; scopes `openid profile email account_level`; put id/secret in `HRIS_CLIENT_ID` / `HRIS_CLIENT_SECRET`, plus `BETTER_AUTH_SECRET` (`openssl rand -hex 32`), `BETTER_AUTH_URL`, `HRIS_URL`.
+
+**Test by hand:** IT user lands on `/devices`; EMPLOYEE user is refused with the message; `/it-pin` and `/api/dashboard/*` unreachable signed out; a status change shows the staff name in history; PCs and desktop app unchanged.
+
+**Notes:** the plan's "dashboard-made `assignments.assigned_by`" has no dashboard code path today (assignments are only created by the agent), so nothing to fill. A denied HRIS user still gets a `staff_user` row (level stored) because Better Auth creates the user before the session. The existing migration-0006 upgrade test now undoes 0007 as well. A user whose HRIS email matches an existing staff row but has a different `sub` is not linked (account linking disabled).
 
 ---
 

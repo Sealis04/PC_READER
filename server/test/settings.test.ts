@@ -131,7 +131,7 @@ describe("logo", () => {
     await upload(png(), "image/png");
     await upload(jpeg, "image/png");
     expect((await getSettings(getDb())).logoContentType).toBe("image/png");
-    const res = await handleClearLogo(getDb());
+    const res = await handleClearLogo(new Request("http://localhost/api/dashboard/settings/logo", { method: "DELETE" }), getDb());
     expect(((await res.json()) as { logo_url: null }).logo_url).toBeNull();
     expect((await handleBrandingLogo(new Request("http://localhost/api/branding/logo"), getDb())).status).toBe(404);
   });

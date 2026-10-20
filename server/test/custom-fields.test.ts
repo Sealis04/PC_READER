@@ -2,9 +2,9 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:tes
 import type { RegisterResponse } from "@pcreader/contracts";
 import { asc, eq } from "drizzle-orm";
 import { closeDb, getDb } from "@/db";
-import { deviceFieldHistory, deviceFieldValues, secretAccessLog, settingsUnlockAttempts } from "@/db/schema";
+import { deviceFieldHistory, deviceFieldValues, secretAccessLog, settingsUnlockAttempts, staffUser } from "@/db/schema";
 import { handleRegister } from "@/lib/agent/register";
-import { getDeviceFields } from "@/lib/custom-fields";
+import { getDeviceFields, getSecretAccessLog } from "@/lib/custom-fields";
 import {
   handleCreateField,
   handleDeviceFields,
@@ -22,6 +22,11 @@ import { jsonRequest, prepareDatabase, registerFixture, resetDatabase, testPin }
 beforeAll(prepareDatabase);
 beforeEach(resetDatabase);
 afterAll(closeDb);
+
+let STAFF = "";
+beforeEach(async () => {
+  [{ id: STAFF }] = await getDb().insert(staffUser).values({ id: "staff-1", name: "Ira IT", email: "ira@x.ph", hrisSub: "hris-1" }).returning({ id: staffUser.id });
+});
 
 const KEY = Buffer.alloc(32, 1).toString("base64");
 
@@ -105,7 +110,7 @@ describe("text and date values", () => {
     const dev = await newDevice("A");
     const email = await newField("Email", "text");
     const warranty = await newField("Warranty", "date");
-    const set = (fieldId: string, value: string | null) => handleSetFieldValue(send("PUT", { value }), getDb(), dev, fieldId);
+    const set = (fieldId: string, value: string | null) => handleSetFieldValue(send("PUT", { value }), getDb(), dev, fieldId, STAFF);
 
     expect(((await (await set(email.id, "a@x.ph")).json()) as { changed: boolean }).changed).toBe(true);
     expect(((await (await set(email.id, " a@x.ph ")).json()) as { changed: boolean }).changed).toBe(false);
@@ -131,7 +136,7 @@ describe("text and date values", () => {
     const text = await newField("T", "text");
     const date = await newField("D", "date");
     const secret = await newField("S", "secret");
-    const put = (fid: string, value: unknown, device = dev) => handleSetFieldValue(send("PUT", { value }), getDb(), device, fid);
+    const put = (fid: string, value: unknown, device = dev) => handleSetFieldValue(send("PUT", { value }), getDb(), device, fid, STAFF);
     expect((await put(date.id, "2027-02-30")).status).toBe(400);
     expect((await put(date.id, "01/03/2027")).status).toBe(400);
     expect((await put(text.id, "x".repeat(501))).status).toBe(400);
@@ -144,10 +149,10 @@ describe("text and date values", () => {
   test("archiving hides a field but keeps its values; restoring brings them back", async () => {
     const dev = await newDevice("A");
     const f = await newField("Email", "text");
-    await handleSetFieldValue(send("PUT", { value: "keep@x.ph" }), getDb(), dev, f.id);
+    await handleSetFieldValue(send("PUT", { value: "keep@x.ph" }), getDb(), dev, f.id, STAFF);
     await handleUpdateField(send("PATCH", { archived: true }), getDb(), f.id);
     expect(await getDeviceFields(getDb(), dev)).toHaveLength(0);
-    expect((await handleSetFieldValue(send("PUT", { value: "new" }), getDb(), dev, f.id)).status).toBe(409);
+    expect((await handleSetFieldValue(send("PUT", { value: "new" }), getDb(), dev, f.id, STAFF)).status).toBe(409);
     expect((await getDb().select().from(deviceFieldValues))[0].textValue).toBe("keep@x.ph");
     await handleUpdateField(send("PATCH", { archived: false }), getDb(), f.id);
     expect((await getDeviceFields(getDb(), dev))[0].text).toBe("keep@x.ph");
@@ -155,8 +160,8 @@ describe("text and date values", () => {
 });
 
 describe("secret fields", () => {
-  const setSecretReq = (dev: string, fid: string, value: unknown, pin: unknown) => handleSetSecret(send("PUT", { value, pin }), getDb(), dev, fid);
-  const revealReq = (dev: string, fid: string, pin: unknown) => handleRevealSecret(send("POST", { pin }), getDb(), dev, fid);
+  const setSecretReq = (dev: string, fid: string, value: unknown, pin: unknown) => handleSetSecret(send("PUT", { value, pin }), getDb(), dev, fid, STAFF);
+  const revealReq = (dev: string, fid: string, pin: unknown) => handleRevealSecret(send("POST", { pin }), getDb(), dev, fid, STAFF);
 
   test("set with the PIN, reveal with the PIN; stored encrypted; logged without the value", async () => {
     const dev = await newDevice("A");
@@ -173,6 +178,9 @@ describe("secret fields", () => {
 
     const log = await getDb().select().from(secretAccessLog).orderBy(asc(secretAccessLog.accessedAt));
     expect(log.map((l) => [l.action, l.success, l.clientIp])).toEqual([["set", true, "10.0.0.9"], ["reveal", true, "10.0.0.9"]]);
+    expect(log.every((l) => l.staffUserId === STAFF)).toBe(true);
+    expect((await getDb().select().from(deviceFieldHistory)).every((h) => h.changedBy === STAFF)).toBe(true);
+    expect((await getSecretAccessLog(getDb(), dev)).every((l) => l.staffName === "Ira IT")).toBe(true);
     expect(JSON.stringify(log)).not.toContain("P@ssw0rd-123");
     const attempts = await getDb().select().from(settingsUnlockAttempts);
     expect(attempts.map((a) => a.method).filter((m) => m !== "register").sort()).toEqual(["reveal_secret", "set_secret"]);
@@ -270,7 +278,7 @@ describe("device list search and filters", () => {
     const b = await newDevice("B");
     const note = await newField("Registered email", "text");
     const warranty = await newField("Warranty", "date");
-    const put = (dev: string, fid: string, value: string) => handleSetFieldValue(send("PUT", { value }), getDb(), dev, fid);
+    const put = (dev: string, fid: string, value: string) => handleSetFieldValue(send("PUT", { value }), getDb(), dev, fid, STAFF);
     await put(a, note.id, "frontdesk@agency.ph");
     await put(a, warranty.id, "2026-12-31");
     await put(b, warranty.id, "2027-06-30");

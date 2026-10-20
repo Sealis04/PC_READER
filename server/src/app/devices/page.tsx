@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { getDb } from "@/db";
+import { requireStaff } from "@/lib/staff-auth";
 import { CONNECTION_LABEL, connectionState, formatDateTime, OS_LABEL, STATUS_LABEL, type ConnectionState } from "@/lib/format";
 import { DEVICE_STATUSES, isDeviceStatus } from "@/lib/inventory";
 import { isValidDate, listFields } from "@/lib/custom-fields";
@@ -25,6 +26,7 @@ const BAD_STATUS = new Set(["for_disposal", "disposed", "lost"]);
 type Params = { connection?: string; status?: string; department?: string; os?: string; q?: string; df?: string; after?: string; before?: string };
 
 export default async function DevicesPage({ searchParams }: { searchParams: Promise<Params> }) {
+  await requireStaff("/devices");
   const params = await searchParams;
   const filter = params.connection === "online" || params.connection === "offline" || params.connection === "stale" ? params.connection : undefined;
   const status = isDeviceStatus(params.status) ? params.status : undefined;

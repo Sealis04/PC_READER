@@ -6,6 +6,7 @@ export type ErrorCode =
   | "invalid_json"
   | "invalid_payload"
   | "unauthorized"
+  | "not_configured"
   | "invalid_enrollment_key"
   | "enrollment_disabled"
   | "wrong_pin"

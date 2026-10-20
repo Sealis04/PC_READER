@@ -1,4 +1,5 @@
 import { getDb } from "@/db";
+import { requireStaff } from "@/lib/staff-auth";
 import { currentPin } from "@/lib/it-pin";
 import { TIME_ZONE } from "@/lib/format";
 import { PinBox } from "./pin-box";
@@ -6,6 +7,7 @@ import { PinBox } from "./pin-box";
 export const dynamic = "force-dynamic";
 
 export default async function ItPinPage() {
+  await requireStaff("/it-pin");
   const { pin, expiresAt } = await currentPin(getDb());
   return (
     <>
@@ -15,7 +17,7 @@ export default async function ItPinPage() {
       </div>
       <section className="panel pad">
         <PinBox initialPin={pin} initialExpiresAt={expiresAt.toISOString()} timeZone={TIME_ZONE} />
-        <p className="sub">There is no dashboard login yet, so anyone who can open this page can see the PIN.</p>
+        <p className="sub">Only signed-in IT staff can see this page.</p>
       </section>
     </>
   );
