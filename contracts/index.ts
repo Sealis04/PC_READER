@@ -16,6 +16,7 @@ import logsRequestSchema from "./agent-api/logs.request.schema.json";
 import logsResponseSchema from "./agent-api/logs.response.schema.json";
 import settingsUnlockRequestSchema from "./agent-api/settings-unlock.request.schema.json";
 import settingsUnlockResponseSchema from "./agent-api/settings-unlock.response.schema.json";
+import brandingResponseSchema from "./agent-api/branding.response.schema.json";
 import requestCompleteSchema from "./agent-api/request-complete.request.schema.json";
 import requestCompleteResponseSchema from "./agent-api/request-complete.response.schema.json";
 
@@ -36,6 +37,7 @@ export const schemas = {
   requestCompleteResponse: requestCompleteResponseSchema,
   settingsUnlockRequest: settingsUnlockRequestSchema,
   settingsUnlockResponse: settingsUnlockResponseSchema,
+  brandingResponse: brandingResponseSchema,
 };
 
 const ajv = new Ajv2020({ allErrors: true, strict: true });
@@ -60,6 +62,8 @@ export const validateRequestComplete = ajv.compile<RequestCompleteRequest>(reque
 
 export const validateSettingsUnlockRequest = ajv.compile<SettingsUnlockRequest>(settingsUnlockRequestSchema);
 export const validateSettingsUnlockResponse = ajv.compile<SettingsUnlockResponse>(settingsUnlockResponseSchema);
+
+export const validateBrandingResponse = ajv.compile<BrandingResponse>(brandingResponseSchema);
 
 export const validateRequestCompleteResponse = ajv.compile<RequestCompleteResponse>(requestCompleteResponseSchema);
 
@@ -261,6 +265,11 @@ export interface RequestCompleteResponse {
 
 export interface SettingsUnlockRequest {
   pin: string;
+}
+
+export interface BrandingResponse {
+  name: string;
+  logo_url: string | null;
 }
 
 export interface SettingsUnlockResponse {

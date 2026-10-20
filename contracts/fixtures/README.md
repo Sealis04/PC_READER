@@ -4,6 +4,6 @@ All values are **invented samples** (serial numbers contain `SAMPLE`, MAC addres
 
 - `payload/` — complete scan payloads (schema v1). `windows-desktop.json` is the expected parser output for `raw/windows/`, `macos-apple-silicon.json` for `raw/macos/`.
 - `register/`, `user/` — sample `POST /register` and `PUT /user` bodies. They carry `it_pin`, the hourly IT PIN, except `user/confirm-details.json`, which carries the approval code of IT's "confirm details" request instead.
-- `network/`, `events/`, `logs/`, `request-complete/`, `settings-unlock/` — sample bodies for `POST /network`, the `GET /events` stream (query + messages), `POST /logs` (request and response) and `POST /requests/{id}/complete`, `POST /settings-unlock`.
+- `network/`, `events/`, `logs/`, `request-complete/`, `settings-unlock/` — sample bodies for `POST /network`, the `GET /events` stream (query + messages), `POST /logs` (request and response) and `POST /requests/{id}/complete`, `POST /settings-unlock`. `branding/` — `GET /api/branding` responses (public; the desktop app reads them).
 - `raw/windows/` — output of `Get-CimInstance <Class> | Select-Object <props> | ConvertTo-Json`, one file per class, plus `netsh-wlan.txt`.
 - `raw/macos/` — output of `system_profiler -json <DataType>` and plain-text command output (`sysctl`, `sw_vers`, `scutil`, `networksetup`, `df`, `route`).

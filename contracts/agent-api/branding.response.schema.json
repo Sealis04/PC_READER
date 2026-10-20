@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pcreader.internal/contracts/agent-api/branding.response.schema.json",
+  "title": "GET /api/branding 200 response",
+  "description": "Public (no token). The agency name and logo this server shows. logo_url is a path on the same server (e.g. /api/branding/logo?v=1760000000000) or null; the version changes when the logo is replaced.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "logo_url"],
+  "properties": {
+    "name": { "type": "string", "minLength": 1, "maxLength": 100 },
+    "logo_url": { "type": ["string", "null"], "pattern": "^/api/branding/logo(\\?v=[0-9]+)?$" }
+  }
+}

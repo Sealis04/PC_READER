@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
-import type { RegisterResponse } from "@pcreader/contracts";
+import { validateBrandingResponse, type RegisterResponse } from "@pcreader/contracts";
 import { sql } from "drizzle-orm";
 import { closeDb, getDb } from "@/db";
 import { runMigrations } from "@/db/migrate";
@@ -34,6 +34,16 @@ describe("defaults", () => {
   test("the first generated number uses INV", async () => {
     const id = await newDevice("A");
     expect((await assignNextNumber(getDb(), id, null, new Date("2026-10-19T04:00:00Z"))).inventoryNumber).toBe("INV-2026-00001");
+  });
+});
+
+describe("public branding endpoint", () => {
+  test("matches the branding.response contract with and without a logo", async () => {
+    expect(validateBrandingResponse(await (await handleBranding(getDb())).json())).toBe(true);
+    await upload(png(), "image/png");
+    const body = await (await handleBranding(getDb())).json();
+    expect(validateBrandingResponse(body)).toBe(true);
+    expect((body as { logo_url: string | null }).logo_url).not.toBeNull();
   });
 });
 
