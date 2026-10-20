@@ -34,6 +34,13 @@ func load() {
 		"payload":  "scan-payload.v1.schema.json",
 		"register": "agent-api/register.request.schema.json",
 		"scans":    "agent-api/scans.request.schema.json",
+		// network.request $refs network-snapshot, so both are loaded.
+		"network":          "agent-api/network.request.schema.json",
+		"network-snapshot": "agent-api/network-snapshot.schema.json",
+		"logs":             "agent-api/logs.request.schema.json",
+		"settings-unlock":  "agent-api/settings-unlock.request.schema.json",
+		"request-complete": "agent-api/request-complete.request.schema.json",
+		"events-message":   "agent-api/events.message.schema.json",
 	}
 	// Register every schema under its $id so cross-file $refs resolve offline.
 	for _, rel := range files {

@@ -18,6 +18,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             </Link>
             <nav>
               <Link href="/devices">Devices</Link>
+              <Link href="/it-pin">IT PIN</Link>
             </nav>
           </div>
         </header>

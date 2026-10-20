@@ -38,7 +38,7 @@ func TestScanFromRawWritesValidPayload(t *testing.T) {
 
 func TestRegisterRequiresPolicyAndFields(t *testing.T) {
 	t.Setenv("PCREADER_HOME", t.TempDir())
-	code, _, stderr := runCLI("register", "--server", "http://127.0.0.1:1", "--key", "k", "--name", "n", "--employee-id", "e", "--department", "d")
+	code, _, stderr := runCLI("register", "--server", "http://127.0.0.1:1", "--key", "k", "--pin", "123456", "--name", "n", "--employee-id", "e", "--department", "d")
 	if code != 1 || !strings.Contains(stderr, "--accept-policy") || !strings.Contains(stderr, "Data-use notice") {
 		t.Fatalf("code %d: %s", code, stderr)
 	}
@@ -52,9 +52,33 @@ func TestRegisterRequiresPolicyAndFields(t *testing.T) {
 	}
 }
 
+func TestRegisterRequiresThePin(t *testing.T) {
+	t.Setenv("PCREADER_HOME", t.TempDir())
+	code, _, stderr := runCLI("register", "--server", "http://127.0.0.1:1", "--key", "k", "--name", "n", "--employee-id", "e", "--department", "d", "--accept-policy")
+	if code != 1 || !strings.Contains(stderr, "--pin") {
+		t.Fatalf("code %d: %s", code, stderr)
+	}
+}
+
+func TestManualUploadNeedsThePinButOtherTypesDoNot(t *testing.T) {
+	t.Setenv("PCREADER_HOME", t.TempDir())
+	raw := contract.Fixture("raw/windows")
+	code, _, stderr := runCLI("scan", "--upload", "--from-raw", raw)
+	if code != 1 || !strings.Contains(stderr, "--pin") {
+		t.Fatalf("manual: code %d: %s", code, stderr)
+	}
+	// Not registered, so these stop at the registration check, not at the PIN.
+	for _, typ := range []string{"on_demand", "scheduled", "startup"} {
+		code, _, stderr = runCLI("scan", "--upload", "--type", typ, "--from-raw", raw)
+		if code != 1 || strings.Contains(stderr, "--pin") || !strings.Contains(stderr, "pcreader register") {
+			t.Fatalf("%s: code %d: %s", typ, code, stderr)
+		}
+	}
+}
+
 func TestUploadBeforeRegisterExplainsWhatToDo(t *testing.T) {
 	t.Setenv("PCREADER_HOME", t.TempDir())
-	code, _, stderr := runCLI("scan", "--upload", "--from-raw", contract.Fixture("raw/windows"))
+	code, _, stderr := runCLI("scan", "--upload", "--pin", "123456", "--from-raw", contract.Fixture("raw/windows"))
 	if code != 1 || !strings.Contains(stderr, "pcreader register") {
 		t.Fatalf("code %d: %s", code, stderr)
 	}

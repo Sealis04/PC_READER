@@ -8,8 +8,12 @@ export type ErrorCode =
   | "unauthorized"
   | "invalid_enrollment_key"
   | "enrollment_disabled"
+  | "wrong_pin"
+  | "too_many_attempts"
   | "payload_too_large"
-  | "unsupported_media_type";
+  | "unsupported_media_type"
+  | "not_found"
+  | "conflict";
 
 export function jsonResponse(body: unknown, status = 200): Response {
   return Response.json(body, { status, headers: { "cache-control": "no-store" } });

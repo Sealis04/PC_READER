@@ -9,6 +9,7 @@
     "scan_uuid": { "type": "string", "format": "uuid", "description": "Generated on the device; duplicates return 409 and count as success" },
     "scan_type": { "enum": ["scheduled", "startup", "on_demand", "manual"] },
     "collected_at": { "type": "string", "format": "date-time" },
+    "it_pin": { "type": "string", "pattern": "^[0-9]{6}$", "description": "Required by the server when scan_type is manual (a person pressed Report now); the current hourly IT PIN (shown on the dashboard)" },
     "payload": { "$ref": "https://pcreader.internal/contracts/scan-payload.v1.schema.json" }
   }
 }

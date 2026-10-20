@@ -2,8 +2,23 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getDb } from "@/db";
 import type { Component } from "@/db/schema";
-import { CATEGORY_LABEL, formatBytes, formatDateTime, OS_LABEL, STATUS_LABEL } from "@/lib/format";
-import { getDeviceDetail } from "@/lib/queries";
+import { InventoryPanel } from "../_components/inventory-panel";
+import { RequestActions, type RequestRow } from "../_components/request-actions";
+import {
+  CATEGORY_LABEL,
+  CONNECTION_LABEL,
+  CONNECTION_TYPE_LABEL,
+  connectionState,
+  formatBytes,
+  formatDateTime,
+  OS_LABEL,
+  REQUEST_LABEL,
+  REQUEST_STATUS_LABEL,
+  STATUS_LABEL,
+} from "@/lib/format";
+import { getUnlockAttempts, PIN_METHOD_LABEL } from "@/lib/it-pin";
+import { REQUEST_TYPES } from "@/lib/requests";
+import { getDeviceDetail, getDeviceHistory, getDeviceLogs, getLatestRequests, getNetworkHistory, LOG_LIMIT, NETWORK_LIMIT } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
 
@@ -33,11 +48,56 @@ function componentSummary(c: Component): string {
   }
 }
 
-export default async function DevicePage({ params }: { params: Promise<{ id: string }> }) {
+const BAD_STATUS = new Set(["for_disposal", "disposed", "lost"]);
+
+const HISTORY_LABEL = {
+  status: "Status",
+  inventory_number: "Inventory number",
+  location: "Location",
+  assigned: "Assigned to",
+  unassigned: "Unassigned from",
+} as const;
+
+function historyValue(kind: string, v: string | null): string {
+  if (v === null) return "none";
+  return kind === "status" ? (STATUS_LABEL[v as keyof typeof STATUS_LABEL] ?? v) : v;
+}
+
+const LEVELS = ["error", "warning", "info"] as const;
+
+export default async function DevicePage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ level?: string }>;
+}) {
   const { id } = await params;
+  const { level: levelParam } = await searchParams;
   if (!UUID_RE.test(id)) notFound();
-  const detail = await getDeviceDetail(getDb(), id);
+  const db = getDb();
+  const detail = await getDeviceDetail(db, id);
   if (!detail) notFound();
+  const level = LEVELS.find((l) => l === levelParam);
+  const [latestRequests, logs, network, history, unlocks] = await Promise.all([
+    getLatestRequests(db, id),
+    getDeviceLogs(db, id, level),
+    getNetworkHistory(db, id),
+    getDeviceHistory(db, id),
+    getUnlockAttempts(db, id),
+  ]);
+  const requestRows: RequestRow[] = REQUEST_TYPES.map((type) => {
+    const r = latestRequests.get(type);
+    const when = r ? (r.completedAt ?? r.deliveredAt ?? r.createdAt) : null;
+    return {
+      type,
+      label: REQUEST_LABEL[type],
+      status: r?.status ?? null,
+      statusLabel: r ? REQUEST_STATUS_LABEL[r.status] : "",
+      detail: r ? [`asked ${formatDateTime(r.createdAt)}`, when && when !== r.createdAt ? `updated ${formatDateTime(when)}` : null, r.message].filter(Boolean).join(" · ") : "",
+    };
+  });
+  const state = connectionState(detail.device);
 
   const { device, assignment, active, removed, latestScan } = detail;
   const p = latestScan?.payload;
@@ -50,10 +110,30 @@ export default async function DevicePage({ params }: { params: Promise<{ id: str
         </p>
         <h1>{device.hostname}</h1>
         <p className="sub">
+          <span className="mono">{device.inventoryNumber ?? "No number yet"}</span> ·{" "}
           {OS_LABEL[device.osType]} · {[device.manufacturer, device.model].filter(Boolean).join(" ") || "Unknown model"} ·{" "}
-          <span className="pill">{STATUS_LABEL[device.status]}</span>
+          <span className={`pill${BAD_STATUS.has(device.status) ? " status-bad" : ""}`}>{STATUS_LABEL[device.status]}</span>{" "}
+          <span className={`pill ${state === "online" ? "ok" : state === "stale" ? "warn" : "off"}`}>{CONNECTION_LABEL[state]}</span>
         </p>
       </div>
+
+      <section>
+        <h2>Inventory</h2>
+        <div className="panel pad">
+          <InventoryPanel deviceId={device.id} inventoryNumber={device.inventoryNumber} status={device.status} location={device.location} />
+          <p className="sub">
+            {device.inventoryNumber ? <Link href={`/devices/${device.id}/label`}>Print label</Link> : "Assign a number to print its label."}
+          </p>
+        </div>
+      </section>
+
+      <section>
+        <h2>Requests</h2>
+        <div className="panel pad">
+          <RequestActions deviceId={device.id} rows={requestRows} />
+          {state !== "online" && <p className="sub">This computer is {CONNECTION_LABEL[state].toLowerCase()}; a request waits until it connects.</p>}
+        </div>
+      </section>
 
       <div className="grid">
         <section className="panel pad">
@@ -87,12 +167,14 @@ export default async function DevicePage({ params }: { params: Promise<{ id: str
             <dd className="mono">{device.serialNumber ?? "—"}</dd>
             <dt>Inventory no.</dt>
             <dd className="mono">{device.inventoryNumber ?? "Not tagged"}</dd>
+            <dt>Location</dt>
+            <dd>{device.location ?? "—"}</dd>
             <dt>OS</dt>
             <dd>{p ? [p.system.os_name, p.system.os_version, p.system.os_build && `(${p.system.os_build})`].filter(Boolean).join(" ") : "—"}</dd>
             <dt>Firmware</dt>
             <dd className="mono">{p?.system.firmware_version ?? "—"}</dd>
             <dt>Agent</dt>
-            <dd className="mono">{p?.agent_version ?? "—"}</dd>
+            <dd className="mono">{device.agentVersion ?? p?.agent_version ?? "—"}</dd>
             <dt>Last scan</dt>
             <dd>{formatDateTime(device.lastFullScanAt)}</dd>
             <dt>Last seen</dt>
@@ -102,6 +184,59 @@ export default async function DevicePage({ params }: { params: Promise<{ id: str
           </dl>
         </section>
       </div>
+
+      <section>
+        <h2>History</h2>
+        <div className="panel pad">
+          {history.length === 0 ? (
+            <p className="sub">No changes recorded yet.</p>
+          ) : (
+            <ul className="timeline">
+              {history.map((h, i) => (
+                <li key={i}>
+                  <span className="num sub">{formatDateTime(h.at)}</span>
+                  <span>
+                    {HISTORY_LABEL[h.kind]}:{" "}
+                    {h.kind === "assigned" ? (
+                      h.to
+                    ) : h.kind === "unassigned" ? (
+                      h.from
+                    ) : (
+                      <>
+                        {historyValue(h.kind, h.from)} → <strong>{historyValue(h.kind, h.to)}</strong>
+                      </>
+                    )}
+                    {h.reason && <span className="sub"> · {h.reason}</span>}
+                    {h.by && <span className="sub"> · by {h.by}</span>}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </section>
+
+      <section>
+        <h2>IT PIN attempts</h2>
+        <div className="panel pad">
+          {unlocks.length === 0 ? (
+            <p className="sub">Nobody has entered the IT PIN on this computer yet.</p>
+          ) : (
+            <ul className="timeline">
+              {unlocks.map((u) => (
+                <li key={u.id}>
+                  <span className="num sub">{formatDateTime(u.attemptedAt)}</span>
+                  <span>
+                    <span className={`pill${u.success ? "" : " warn"}`}>{u.success ? "Unlocked" : "Wrong PIN"}</span>{" "}
+                    <span className="sub">{PIN_METHOD_LABEL[u.method]}</span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="sub">Unlocks with the enrollment key while the server was unreachable appear in the logs after the next Send logs.</p>
+        </div>
+      </section>
 
       <section>
         <h2>Components</h2>
@@ -210,6 +345,83 @@ export default async function DevicePage({ params }: { params: Promise<{ id: str
           </div>
         </section>
       )}
+
+      <section>
+        <h2>Network</h2>
+        <p className="sub">Snapshots sent when the PC connected and whenever its network changed (newest {NETWORK_LIMIT}).</p>
+        <div className="panel">
+          {network.length === 0 ? (
+            <p className="empty">No network snapshot received yet.</p>
+          ) : (
+            <table>
+              <thead>
+                <tr>
+                  <th>Collected</th>
+                  <th>Connection</th>
+                  <th>IP addresses</th>
+                  <th>MAC</th>
+                  <th>Gateway</th>
+                  <th>DNS</th>
+                  <th>Wi-Fi</th>
+                </tr>
+              </thead>
+              <tbody>
+                {network.map((n) => (
+                  <tr key={n.id}>
+                    <td className="num">{formatDateTime(n.collectedAt)}</td>
+                    <td>{CONNECTION_TYPE_LABEL[n.connectionType]}</td>
+                    <td className="mono">{n.ipAddresses.join(", ") || "—"}</td>
+                    <td className="mono">{n.macAddresses.join(", ") || "—"}</td>
+                    <td className="mono">{n.gateway ?? "—"}</td>
+                    <td className="mono">{n.dnsServers.join(", ") || "—"}</td>
+                    <td>{n.ssid ?? "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </section>
+
+      <section>
+        <h2>Logs</h2>
+        <p className="sub">Uploaded when requested with “Send logs” (newest {LOG_LIMIT}).</p>
+        <nav className="filters" aria-label="Filter logs by level">
+          {[undefined, ...LEVELS].map((l) => (
+            <Link key={l ?? "all"} href={l ? `/devices/${device.id}?level=${l}#logs` : `/devices/${device.id}#logs`} aria-current={l === level}>
+              {l ? l[0].toUpperCase() + l.slice(1) : "All"}
+            </Link>
+          ))}
+        </nav>
+        <div className="panel" id="logs" style={{ marginTop: 8 }}>
+          {logs.length === 0 ? (
+            <p className="empty">No logs{level ? ` at level “${level}”` : ""} uploaded yet.</p>
+          ) : (
+            <table>
+              <thead>
+                <tr>
+                  <th>Time</th>
+                  <th>Level</th>
+                  <th>Category</th>
+                  <th>Message</th>
+                </tr>
+              </thead>
+              <tbody>
+                {logs.map((l) => (
+                  <tr key={l.id}>
+                    <td className="num">{formatDateTime(l.loggedAt)}</td>
+                    <td>
+                      <span className={`pill${l.level === "error" || l.level === "warning" ? " warn" : " muted"}`}>{l.level}</span>
+                    </td>
+                    <td>{l.category}</td>
+                    <td className="msg">{l.message}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </section>
 
       {latestScan && (
         <section className="panel pad">

@@ -22,6 +22,7 @@ func Exec(ctx context.Context, name string, args ...string) ([]byte, error) {
 	var stdout, stderr bytes.Buffer
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	hideWindow(cmd)
 	if err := cmd.Run(); err != nil {
 		msg := bytes.TrimSpace(stderr.Bytes())
 		if len(msg) > 300 {

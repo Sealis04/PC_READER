@@ -1,0 +1,15 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "PC_READER",
+  "outputfilename": "pcreader-desktop",
+  "frontend:dir": "frontend",
+  "frontend:install": "bun install --frozen-lockfile",
+  "frontend:build": "bun run build",
+  "info": {
+    "companyName": "Intramuros Administration",
+    "productName": "PC_READER",
+    "productVersion": "0.2.0",
+    "copyright": "Intramuros Administration",
+    "comments": "Reports this computer's hardware to IT"
+  }
+}

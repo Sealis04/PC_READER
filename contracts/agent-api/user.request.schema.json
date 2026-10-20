@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pcreader.internal/contracts/agent-api/user.request.schema.json",
+  "title": "PUT /api/agent/user request (and response body)",
+  "description": "The user's details plus the current hourly IT PIN (it_pin; the PIN is not stored). Same detail fields as register.request's user, without policy_acknowledged. The response returns the stored user in the same shape, without it_pin (see UserDetails).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "full_name",
+    "employee_id",
+    "email",
+    "department",
+    "position",
+    "phone",
+    "it_pin"
+  ],
+  "properties": {
+    "full_name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "employee_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "email": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "email",
+      "maxLength": 255
+    },
+    "department": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "position": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 255
+    },
+    "phone": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 64
+    },
+    "it_pin": {
+      "type": "string",
+      "pattern": "^[0-9]{6}$",
+      "description": "The current hourly IT PIN (shown on the dashboard)"
+    }
+  }
+}

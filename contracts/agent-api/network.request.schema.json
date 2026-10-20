@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pcreader.internal/contracts/agent-api/network.request.schema.json",
+  "title": "POST /api/agent/network request",
+  "description": "A network snapshot; 204 on success. The server stores it as a network_logs row (online = true) and refreshes last_seen_at.",
+  "$ref": "https://pcreader.internal/contracts/agent-api/network-snapshot.schema.json"
+}

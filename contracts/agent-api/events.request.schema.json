@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pcreader.internal/contracts/agent-api/events.request.schema.json",
+  "title": "GET /api/agent/events query (the hello)",
+  "description": "Opens the long-lived Server-Sent Events stream (Authorization: Bearer <device token>, Accept: text/event-stream). The hello is carried in the query string because a GET has no body: agent_version names the running agent. The network snapshot is not part of the hello; the agent sends it with POST /api/agent/network right after the stream opens. While the stream is open the device is Online; closing it marks the device Offline.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["agent_version"],
+  "properties": {
+    "agent_version": { "type": "string", "minLength": 1, "maxLength": 64 }
+  }
+}
