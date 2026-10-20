@@ -2,75 +2,21 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:tes
 import { desc, eq } from "drizzle-orm";
 import { closeDb, getDb } from "@/db";
 import { staffEvents, staffSession, staffUser } from "@/db/schema";
-import { getAuth, handleAuthRequest, resetAuthForTests } from "@/lib/auth";
+import { getAuth } from "@/lib/auth";
 import { allowedLevels, authConfigured, isAllowedLevel, safeNext } from "@/lib/staff-config";
+import { authorizeParams, BASE, hrisProfile as profile, sessionCookie, signIn, startMockHris, stopMockHris } from "./mock-hris";
 import { prepareDatabase, resetDatabase } from "./helpers";
-
-const BASE = "http://pcreader.test";
-let hris: ReturnType<typeof Bun.serve>;
-// What the mock HRIS puts into the next id_token.
-let claims: Record<string, unknown> = {};
-
-const b64 = (o: unknown) => Buffer.from(JSON.stringify(o)).toString("base64url");
 
 beforeAll(async () => {
   await prepareDatabase();
-  hris = Bun.serve({
-    port: 0,
-    fetch(req) {
-      const url = new URL(req.url);
-      const origin = url.origin;
-      if (url.pathname === "/.well-known/openid-configuration") {
-        return Response.json({
-          issuer: `${origin}/api/better-auth`,
-          authorization_endpoint: `${origin}/api/better-auth/oauth2/authorize`,
-          token_endpoint: `${origin}/api/better-auth/oauth2/token`,
-          userinfo_endpoint: `${origin}/api/better-auth/oauth2/userinfo`,
-          jwks_uri: `${origin}/api/better-auth/jwks`,
-        });
-      }
-      if (url.pathname === "/api/better-auth/oauth2/token") {
-        const id_token = `${b64({ alg: "none" })}.${b64({ iss: `${origin}/api/better-auth`, aud: "pcreader", ...claims })}.sig`;
-        return Response.json({ access_token: "at", token_type: "Bearer", expires_in: 3600, id_token, scope: "openid profile email account_level" });
-      }
-      return new Response("not found", { status: 404 });
-    },
-  });
-  process.env.BETTER_AUTH_SECRET = "test-secret-test-secret-test-secret-1234";
-  process.env.BETTER_AUTH_URL = BASE;
-  process.env.HRIS_URL = `http://localhost:${hris.port}`;
-  process.env.HRIS_CLIENT_ID = "pcreader";
-  process.env.HRIS_CLIENT_SECRET = "shh";
-  delete process.env.HRIS_ALLOWED_USER_LEVELS;
-  resetAuthForTests();
+  startMockHris();
 });
 beforeEach(resetDatabase);
 afterAll(async () => {
-  hris.stop(true);
+  stopMockHris();
   await closeDb();
 });
 
-// Walks sign-in → HRIS → callback with the mock; returns the callback response.
-async function signIn(profile: Record<string, unknown>): Promise<Response> {
-  claims = profile;
-  const auth = getAuth()!;
-  const start = await auth.handler(
-    new Request(`${BASE}/api/auth/sign-in/oauth2`, {
-      method: "POST",
-      headers: { "content-type": "application/json", origin: BASE },
-      body: JSON.stringify({ providerId: "hris", callbackURL: "/devices", errorCallbackURL: "/login" }),
-    }),
-  );
-  expect(start.status).toBe(200);
-  const { url } = (await start.json()) as { url: string };
-  const authorize = new URL(url);
-  expect(authorize.searchParams.get("code_challenge_method")).toBe("S256");
-  expect(authorize.searchParams.get("scope")).toBe("openid profile email account_level");
-  const cookie = start.headers.getSetCookie().map((c) => c.split(";")[0]).join("; ");
-  return handleAuthRequest(auth, new Request(`${BASE}/api/auth/oauth2/callback/hris?code=abc&state=${authorize.searchParams.get("state")}`, { headers: { cookie } }));
-}
-
-const profile = (over: Record<string, unknown> = {}) => ({ sub: "hris-1", name: "Ira IT", email: "ira@example.gov", employee_number: "0042", "hris:user_level": "IT", ...over });
 const events = () => getDb().select().from(staffEvents).orderBy(desc(staffEvents.createdAt));
 
 describe("settings helpers", () => {
@@ -105,6 +51,8 @@ describe("HRIS sign-in", () => {
   test("an IT user gets a session, a staff row and a login event", async () => {
     const res = await signIn(profile());
     expect(res.status).toBe(302);
+    expect(authorizeParams?.get("code_challenge_method")).toBe("S256");
+    expect(authorizeParams?.get("scope")).toBe("openid profile email account_level");
     expect(res.headers.get("location")).toContain("/devices");
     expect(res.headers.getSetCookie().join(";")).toContain("session_token");
     const [staff] = await getDb().select().from(staffUser);
@@ -140,5 +88,15 @@ describe("HRIS sign-in", () => {
     expect(again.headers.getSetCookie().join(";")).toContain("session_token");
     expect((await getDb().select().from(staffUser)).length).toBe(1);
     expect((await events()).map((e) => e.type).sort()).toEqual(["login", "login", "login_denied"]);
+  });
+});
+
+describe("sign out", () => {
+  test("is logged and ends the session", async () => {
+    const cookie = sessionCookie(await signIn(profile()));
+    const out = await getAuth()!.handler(new Request(`${BASE}/api/auth/sign-out`, { method: "POST", headers: { "content-type": "application/json", origin: BASE, cookie }, body: "{}" }));
+    expect(out.status).toBe(200);
+    expect(await getDb().select().from(staffSession)).toHaveLength(0);
+    expect((await events()).map((e) => e.type).sort()).toEqual(["login", "logout"]);
   });
 });
