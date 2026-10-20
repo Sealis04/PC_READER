@@ -23,6 +23,7 @@ IT no longer sets a PIN on each PC. The dashboard shows one current **IT PIN** f
 | Unlock log | Server records each unlock attempt: device, time, success/failure, method (`hourly_pin`). Device page shows recent attempts. Offline enrollment-key unlocks are written to the PC's local log and uploaded on the next Send logs |
 | Accepted risk | No dashboard login yet: anyone on the LAN who opens the dashboard can read the current PIN. Documented in the README; fixed when staff login arrives |
 | Details need the PIN | (added 2026-10-20) First-time signup and Update my details also need the hourly IT PIN, enforced by the server (`register`, `PUT /user`). Exception: confirming details after a dashboard "Ask user to confirm details" request needs no PIN. No offline fallback for these forms |
+| View-only without PIN | (2026-10-20, overrides the exception above) Without the IT PIN the desktop app is view-only. Report now (window and tray), signup, Update my details (also after a dashboard prompt) and Settings all need the PIN; the server enforces it for manual scans, register and `PUT /user`. Dashboard-requested work (scan_now, send_logs) needs none. One correct PIN unlocks the app for 10 minutes or until the window is hidden |
 | Builders | Builder 1 only; no reviewer routine. Stacks on PR #8 (M4) |
 
 ## Work breakdown (Builder 1, in this order, separate commits)

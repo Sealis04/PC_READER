@@ -20,6 +20,20 @@ See the repo `CLAUDE.md`. In short: bun + Drizzle (no Prisma, no `db:push`; `cd 
 
 ---
 
+## builder-1 — ADDENDUM to M5 round 2 (2026-10-20) — overrides round 2 where they differ
+
+User rule: **without the IT PIN, the desktop app is view-only.** Users can look at My computer and Full details; every action needs the hourly IT PIN:
+- **Report now** (window button and tray menu item) → PIN prompt first. Server: `POST /scans` with `scan_type: manual` from the desktop app requires a valid `it_pin` (field in the scans request, optional in the schema; required by the handler for `manual`). Scans that answer a dashboard `scan_now` request (`on_demand`) need no PIN (staff asked).
+- **Signup** and **Update my details** → PIN (as in round 2).
+- **Settings / change server address** → PIN, enrollment key when offline (unchanged).
+- **Drop the round-2 exception:** confirming details after a dashboard "Ask user to confirm details" request also needs the PIN. The prompt just opens Update my details with "IT asked to confirm these details. IT needs to enter the PIN to save."
+- **Unlock session:** after a correct PIN the app stays unlocked for 10 minutes (one PIN covers several actions), and locks again when the window is hidden/closed or after the 10 minutes. Show a small "Unlocked for IT · Lock" indicator. Lockout (5 tries / 60 s) shared across all prompts.
+- Background work requested by the dashboard (scan_now, send_logs) never needs a PIN.
+- Tests: server rejects a manual scan without/with a wrong PIN, accepts on_demand without; bound tests for the unlock session (expiry, lock on hide).
+- Docs: README "What users can do without the IT PIN: view only".
+
+---
+
 ## builder-1 — FIX REQUEST (2026-10-20, M5 round 2)
 
 Base: PR #9 (`claude/cool-volta-bufmo9`, commit 9188559, CI green). New user decision: **submitting user details also needs the hourly IT PIN.**
