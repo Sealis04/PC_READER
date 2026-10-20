@@ -87,7 +87,7 @@ Nine tables in PostgreSQL. Every table has `id` (UUID), `created_at`, and `updat
 - Statuses: In use, Spare, Under repair, For disposal, Disposed, Lost (see Open questions).
 - Batch tagging sets one inventory number on the device and, optionally, numbered suffixes on its components (e.g. `AGY-2026-00123-C01`).
 - On macOS, CPU, RAM, and storage on Apple Silicon are stored with `is_integrated = true` and cannot be tagged separately.
-- Staff accounts for the dashboard live in a separate `staff` table managed by Auth.js, not in `users`.
+- Staff accounts for the dashboard live in separate `staff_*` tables managed by Better Auth, not in `users`. Staff sign in with their HRIS account (HRIS is the OIDC provider); only the HRIS user levels in `HRIS_ALLOWED_USER_LEVELS` (default `IT`) get a session. See README "Staff login (HRIS)".
 
 ## Scan field mapping
 
