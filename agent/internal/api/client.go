@@ -5,6 +5,7 @@ package api
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -76,9 +77,12 @@ func retryable(status int) bool { return status == http.StatusTooManyRequests ||
 
 // do sends body (POST unless method says otherwise) and decodes the response into out for any status in ok.
 func (c *Client) do(ctx context.Context, method, path, token string, body any, out any, ok ...int) (int, error) {
-	b, err := json.Marshal(body)
-	if err != nil {
-		return 0, err
+	var b []byte // nil: no request body (GET)
+	if body != nil {
+		var err error
+		if b, err = json.Marshal(body); err != nil {
+			return 0, err
+		}
 	}
 	var lastErr error
 	for attempt := 0; ; attempt++ {
@@ -223,6 +227,60 @@ func (c *Client) UnlockSettings(ctx context.Context, token, pin string) error {
 		return errors.New("unexpected response from server")
 	}
 	return nil
+}
+
+// Branding fetches the agency name and logo path. The endpoint is public, so no token is sent; like
+// UnlockSettings it never retries, so an offline start is not held up.
+func (c *Client) Branding(ctx context.Context) (*payload.Branding, error) {
+	once := *c
+	once.Backoff = nil
+	var out payload.Branding
+	if _, err := once.do(ctx, http.MethodGet, "/api/branding", "", nil, &out, http.StatusOK); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(out.Name) == "" {
+		return nil, errors.New("the server sent no agency name")
+	}
+	return &out, nil
+}
+
+// MaxLogoBytes is the largest logo the server accepts and the app will take.
+const MaxLogoBytes = 512 * 1024
+
+// BrandingLogo downloads the logo at path (the logo_url the server gave) and returns it as a data: URL.
+// Only the server's own logo path and PNG, JPEG or WebP images are accepted.
+func (c *Client) BrandingLogo(ctx context.Context, path string) (string, error) {
+	if !strings.HasPrefix(path, "/api/branding/logo") {
+		return "", errors.New("unexpected logo address")
+	}
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+path, nil)
+	if err != nil {
+		return "", err
+	}
+	res, err := c.HTTP.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("cannot reach %s: %w", c.BaseURL, err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return "", &Error{Status: res.StatusCode, Message: "the logo could not be fetched"}
+	}
+	typ := strings.ToLower(strings.TrimSpace(strings.SplitN(res.Header.Get("Content-Type"), ";", 2)[0]))
+	switch typ {
+	case "image/png", "image/jpeg", "image/webp":
+	default:
+		return "", fmt.Errorf("the logo has an unsupported type %q", typ)
+	}
+	data, err := io.ReadAll(io.LimitReader(res.Body, MaxLogoBytes+1))
+	if err != nil {
+		return "", err
+	}
+	if len(data) == 0 || len(data) > MaxLogoBytes {
+		return "", errors.New("the logo is empty or too large")
+	}
+	return "data:" + typ + ";base64," + base64.StdEncoding.EncodeToString(data), nil
 }
 
 // Ping checks that the server answers, without retries: any 2xx or 3xx reply from the

@@ -436,3 +436,50 @@ func trimUser(u payload.UserDetails) payload.UserDetails {
 		Phone:      rd.StrPtr(rd.Deref(u.Phone)),
 	}
 }
+
+// CachedBranding is the agency name and logo saved by the last successful RefreshBranding, or nil.
+func (s *Service) CachedBranding() *config.Branding {
+	cfg, err := config.Load()
+	if err != nil {
+		return nil
+	}
+	return cfg.Branding
+}
+
+// RefreshBranding asks the server (serverURL, or the registered server when empty) for its agency name
+// and logo and saves them in config.json, so the window can show them on an offline start. The logo is
+// downloaded only when its versioned address changed. On any failure the saved branding stays as it was.
+func (s *Service) RefreshBranding(ctx context.Context, serverURL string) (*config.Branding, error) {
+	cfg, err := config.Load()
+	if err != nil {
+		return nil, err
+	}
+	if serverURL == "" {
+		serverURL = cfg.ServerURL
+	}
+	if serverURL == "" {
+		return cfg.Branding, ErrNotRegistered
+	}
+	client := s.client(serverURL)
+	got, err := client.Branding(ctx)
+	if err != nil {
+		return cfg.Branding, err
+	}
+	next := &config.Branding{Name: strings.TrimSpace(got.Name)}
+	if got.LogoURL != nil && *got.LogoURL != "" {
+		next.LogoURL = *got.LogoURL
+		if old := cfg.Branding; old != nil && old.LogoURL == next.LogoURL && old.Logo != "" {
+			next.Logo = old.Logo
+		} else if next.Logo, err = client.BrandingLogo(ctx, next.LogoURL); err != nil {
+			// A broken logo must not hide the name: keep the name, drop the logo.
+			s.logf("warning", "system", "The agency logo could not be fetched")
+			next.LogoURL, next.Logo = "", ""
+		}
+	}
+	// Load again: other parts of the app may have saved config.json while the server was answering.
+	if cfg, err = config.Load(); err != nil {
+		return next, err
+	}
+	cfg.Branding = next
+	return next, cfg.Save()
+}

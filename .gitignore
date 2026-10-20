@@ -12,3 +12,4 @@ agent/desktop/frontend/dist/*
 agent/desktop/frontend/wailsjs/
 agent/desktop/build/bin/
 agent/dist-desktop/
+agent/pcreader

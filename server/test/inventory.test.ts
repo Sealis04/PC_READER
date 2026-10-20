@@ -6,11 +6,16 @@ import { deviceFieldHistory, devices, inventoryCounters, statusHistory } from "@
 import { handleRegister } from "@/lib/agent/register";
 import { getDeviceHistory, listDepartments, listDevices } from "@/lib/queries";
 import { handleInventoryAction } from "@/lib/dashboard-inventory";
+import { updateSettings } from "@/lib/settings";
 import { assignNextNumber, changeStatus, clearInventoryNumber, inventoryYear, InventoryError, parseGeneratedNumber, setInventoryNumber, setLocation } from "@/lib/inventory";
 import { jsonRequest, prepareDatabase, registerFixture, resetDatabase } from "./helpers";
 
 beforeAll(prepareDatabase);
-beforeEach(resetDatabase);
+// These tests use the IA prefix that upgraded servers keep (the default for new servers is INV).
+beforeEach(async () => {
+  await resetDatabase();
+  await updateSettings(getDb(), { inventoryPrefix: "IA" });
+});
 afterAll(closeDb);
 
 async function newDevice(hostname: string): Promise<string> {
@@ -34,10 +39,10 @@ describe("inventoryYear / parseGeneratedNumber", () => {
     expect(inventoryYear(new Date("2026-12-31T15:30:00Z"))).toBe(2026);
   });
   test("only IA-YYYY-NNNNN counts as a generated number", () => {
-    expect(parseGeneratedNumber("IA-2026-00123")).toEqual({ year: 2026, counter: 123 });
-    expect(parseGeneratedNumber("ia-2026-00123")).toEqual({ year: 2026, counter: 123 });
-    expect(parseGeneratedNumber("IA-2026-123")).toBeNull();
-    expect(parseGeneratedNumber("OLD-0001")).toBeNull();
+    expect(parseGeneratedNumber("IA-2026-00123", "IA")).toEqual({ year: 2026, counter: 123 });
+    expect(parseGeneratedNumber("ia-2026-00123", "IA")).toEqual({ year: 2026, counter: 123 });
+    expect(parseGeneratedNumber("IA-2026-123", "IA")).toBeNull();
+    expect(parseGeneratedNumber("OLD-0001", "IA")).toBeNull();
   });
 });
 

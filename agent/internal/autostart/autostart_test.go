@@ -68,3 +68,38 @@ func TestEnsureHonoursTheDisableSwitch(t *testing.T) {
 		t.Fatal("Ensure must do nothing when disabled")
 	}
 }
+
+func TestWritingThePlistRemovesTheLegacyOne(t *testing.T) {
+	dir := t.TempDir()
+	legacy := filepath.Join(dir, LegacyAgentLabel+".plist")
+	if err := os.WriteFile(legacy, []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := writePlist(dir, "/x/app"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(legacy); !os.IsNotExist(err) {
+		t.Fatal("the old LaunchAgent plist is still there")
+	}
+	if _, err := os.Stat(filepath.Join(dir, AgentLabel+".plist")); err != nil {
+		t.Fatal("the new plist was not written")
+	}
+	if AgentLabel == LegacyAgentLabel {
+		t.Fatal("the label must have changed")
+	}
+}
+
+func TestRemovePlistAlsoRemovesTheLegacyOne(t *testing.T) {
+	dir := t.TempDir()
+	for _, l := range []string{AgentLabel, LegacyAgentLabel} {
+		if err := os.WriteFile(filepath.Join(dir, l+".plist"), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := removePlist(dir); err != nil {
+		t.Fatal(err)
+	}
+	if entries, _ := os.ReadDir(dir); len(entries) != 0 {
+		t.Fatalf("left behind: %v", entries)
+	}
+}

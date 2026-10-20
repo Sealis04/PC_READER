@@ -3,6 +3,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   formatErrors,
+  validateBrandingResponse,
   validateEventsMessage,
   validateEventsRequest,
   validateLogsRequest,
@@ -225,5 +226,21 @@ describe("request-complete fixtures", () => {
     expect(validateRequestComplete({ result: "pending" })).toBe(false);
     expect(validateRequestComplete({ result: "done", scan_id: "nope" })).toBe(false);
     expect(validateRequestComplete({})).toBe(false);
+  });
+});
+
+describe("branding fixtures", () => {
+  for (const name of files("branding")) {
+    test(`${name} matches branding.response`, () => {
+      const ok = validateBrandingResponse(load(`branding/${name}`));
+      expect(formatErrors(validateBrandingResponse.errors)).toEqual([]);
+      expect(ok).toBe(true);
+    });
+  }
+  test("the logo url must be this server's logo path, the name must not be empty", () => {
+    expect(validateBrandingResponse({ name: "", logo_url: null })).toBe(false);
+    expect(validateBrandingResponse({ name: "X", logo_url: "https://evil.example/x.png" })).toBe(false);
+    expect(validateBrandingResponse({ name: "X", logo_url: "/api/branding/logo?v=abc" })).toBe(false);
+    expect(validateBrandingResponse({ name: "X" })).toBe(false);
   });
 });

@@ -233,6 +233,13 @@ type SettingsUnlockResponse struct {
 	OK bool `json:"ok"`
 }
 
+// Branding is GET /api/branding: the agency name and logo this server shows. LogoURL is a path on the
+// same server (with a version), or nil when no logo is set.
+type Branding struct {
+	Name    string  `json:"name"`
+	LogoURL *string `json:"logo_url"`
+}
+
 // Request types a dashboard can queue (events.message).
 const (
 	RequestScanNow             = "scan_now"

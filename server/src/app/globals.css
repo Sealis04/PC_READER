@@ -89,3 +89,6 @@ input, select { font: inherit; padding: 5px 8px; border: 1px solid var(--line); 
   main { padding: 0; max-width: none; }
   .label { border-style: dashed; }
 }
+header.top .brand { display: inline-flex; align-items: center; gap: 8px; }
+header.top .logo { height: 28px; width: auto; max-width: 120px; object-fit: contain; }
+.logo-preview { max-height: 64px; max-width: 240px; object-fit: contain; border: 1px solid var(--line); border-radius: 4px; padding: 4px; background: #fff; }
