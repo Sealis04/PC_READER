@@ -14,6 +14,7 @@ import {
   SaveServerURL,
   Connection,
   TakePrompt,
+  Session,
 } from "../wailsjs/go/bound/App";
 import { EventsOn } from "../wailsjs/runtime/runtime";
 
@@ -152,6 +153,103 @@ EventsOn("prompt-details", checkPrompt);
 refreshConnection();
 document.querySelector("header.top").append(connection);
 
+// ---- the IT PIN: without it the app is view-only ----
+
+// "Unlocked for IT · Lock" with the minutes left. One correct PIN covers several actions for 10 minutes;
+// the window locks again when it is hidden (Go emits "session").
+const session = el("span", { class: "session" });
+session.hidden = true;
+document.querySelector("header.top").append(session);
+let sessionLeft = 0;
+
+async function refreshSession() {
+  const sv = await Session();
+  sessionLeft = sv.unlocked ? sv.secondsLeft : 0;
+  drawSession();
+}
+
+function drawSession() {
+  session.hidden = sessionLeft <= 0;
+  if (session.hidden) return;
+  const mins = Math.floor(sessionLeft / 60);
+  const secs = String(sessionLeft % 60).padStart(2, "0");
+  session.replaceChildren(
+    `Unlocked for IT (${mins}:${secs}) · `,
+    el("button", { class: "link", onclick: lockNow }, "Lock"),
+  );
+}
+
+async function lockNow() {
+  await LockITSettings();
+  await refreshSession();
+  home();
+}
+
+setInterval(() => {
+  if (sessionLeft <= 0) return;
+  sessionLeft -= 1;
+  drawSession();
+  if (sessionLeft <= 0) refreshSession();
+}, 1000);
+EventsOn("session", refreshSession);
+refreshSession();
+
+// Asks for the IT PIN in a small dialog. Resolves true once the server accepted it (the session is then
+// open), false if cancelled. The server must be reachable: there is no offline fallback for actions.
+function pinDialog(why) {
+  return new Promise((resolve) => {
+    const banner = el("div");
+    const form = el("form", { novalidate: true });
+    const submit = el("button", { type: "submit", class: "primary" }, "Unlock");
+    const close = (ok) => {
+      overlay.remove();
+      resolve(ok);
+    };
+    form.append(
+      field("pin", "IT PIN", { type: "password", required: true, hint: "6 digits, shown on the PC_READER dashboard. It changes every hour." }),
+      el("div", { class: "actions" }, el("button", { type: "button", onclick: () => close(false) }, "Cancel"), submit),
+    );
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      busy(submit, "Checking…", true);
+      const res = await UnlockITSettings(form.elements.pin.value);
+      busy(submit, "", false);
+      if (res.ok) {
+        await refreshSession();
+        return close(true);
+      }
+      form.elements.pin.value = "";
+      showFieldErrors(form, {});
+      // Mode "key" means the server could not check the PIN; for actions that just means "try again online".
+      const text = res.mode === "key" ? "Can't reach the server. Try again when this computer is online." : res.message;
+      banner.replaceChildren(message("error", text));
+    });
+    const overlay = el(
+      "div",
+      { class: "overlay", role: "dialog", "aria-modal": "true", "aria-label": "IT PIN" },
+      el("div", { class: "card dialog" }, el("h2", {}, "IT PIN needed"), el("p", { class: "muted" }, why), banner, form),
+    );
+    document.body.append(overlay);
+    form.elements.pin.focus();
+  });
+}
+
+// Makes sure the session holds a PIN (asks for it when not); false if the user backed out.
+async function ensurePin(why) {
+  const sv = await Session();
+  return sv.hasPin ? true : pinDialog(why);
+}
+
+// The tray's "Report now" while locked: the window opens and asks for the PIN first.
+EventsOn("report-needs-pin", async () => {
+  const st = await State();
+  if (st.screen !== "home") return;
+  if (!(await pinDialog("Report now sends this computer's details to IT. IT needs to enter the PIN."))) return;
+  const res = await ReportNow();
+  refreshSession();
+  home(res.ok ? res.message : undefined);
+});
+
 function setup(st) {
   const banner = el("div");
   const form = el(
@@ -191,6 +289,11 @@ function signup(st) {
     { novalidate: true },
     ...userFields(st.user),
     el("div", { class: "notice" }, st.notice),
+    field("pin", "IT PIN", {
+      type: "password",
+      required: true,
+      hint: "Ask IT for the 6-digit PIN shown on the PC_READER dashboard. It changes every hour.",
+    }),
     el(
       "label",
       { class: "check", for: "f-policyAccepted" },
@@ -209,10 +312,13 @@ function signup(st) {
     e.preventDefault();
     const btn = form.querySelector("button[type=submit]");
     busy(btn, "Scanning and registering — this can take up to a minute…", true);
-    const res = await Signup(readUser(form));
+    const res = await Signup(readUser(form), form.elements.pin.value);
     busy(btn, "", false);
     showFieldErrors(form, res.fieldErrors ?? {});
-    if (res.ok) return home(res.message);
+    if (res.ok) {
+      refreshSession();
+      return home(res.message);
+    }
     banner.replaceChildren(message("error", res.message));
   });
   show(
@@ -241,9 +347,12 @@ function renderHome(h, banner) {
   const status = el("div", {}, banner);
   const reportBtn = el("button", { class: "primary" }, "Report now");
   reportBtn.addEventListener("click", async () => {
+    if (!(await ensurePin("Report now sends this computer's details to IT. IT needs to enter the PIN."))) return;
     busy(reportBtn, "Scanning and sending…", true);
-    const res = await ReportNow();
+    let res = await ReportNow();
+    if (res.needsPin && (await pinDialog(res.message))) res = await ReportNow(); // the PIN changed: ask once more
     busy(reportBtn, "", false);
+    refreshSession();
     if (res.ok) return renderHome(res.home, message("ok", res.message));
     status.replaceChildren(message("error", res.message));
     if (res.needsReregistration) status.append(reregisterButton());
@@ -276,6 +385,7 @@ function renderHome(h, banner) {
 
   show(
     el("h1", {}, "My computer"),
+    el("p", { class: "muted" }, "You can look at your computer's details here. Report now, Update my details and Settings need the IT PIN."),
     h.reported ? "" : el("p", { class: "muted" }, "These specs were just read from this computer and have not been sent to IT yet. Press “Report now”."),
     status,
     h.needsReregistration ? el("div", {}, message("error", h.message), reregisterButton()) : "",
@@ -310,6 +420,13 @@ function reregisterButton() {
 // The unlock prompt. It asks for the IT PIN shown on the dashboard (the server checks it); when the server
 // cannot answer, or no longer knows this computer, it asks for the enrollment key instead.
 async function itLogin(next, startMessage) {
+  const sv = await Session();
+  if (sv.unlocked) {
+    // Already unlocked this session: no second prompt.
+    if (next !== "reregister") return itSettings();
+    const st = await StartReregistration();
+    return st.screen === "setup" ? setup(st) : home();
+  }
   await LockITSettings(); // start fresh: the PIN prompt again, even if the last visit fell back to the key
   const prompt = await UnlockMode();
   const banner = el("div");
@@ -343,6 +460,7 @@ async function itLogin(next, startMessage) {
     const res = await UnlockITSettings(input.value);
     busy(submit, next === "reregister" ? "Continue" : "Open Settings", false);
     if (res.ok) {
+      refreshSession();
       if (next !== "reregister") return itSettings();
       const st = await StartReregistration();
       return st.screen === "setup" ? setup(st) : home();
@@ -364,7 +482,7 @@ async function itSettings(notice) {
   const cur = await ITSettings();
   if (!cur.ok) return itLogin();
   const leave = async () => {
-    await LockITSettings();
+    // Leaving Settings closes the Settings part only if the key opened it; a PIN session stays for its 10 minutes.
     home();
   };
 
@@ -392,13 +510,16 @@ async function itSettings(notice) {
   );
 }
 
-function editUser(h, notice) {
+async function editUser(h, notice) {
   const banner = el("div", {}, notice ? message("ok", notice) : "");
+  const sv = await Session();
   const form = el(
     "form",
     { novalidate: true },
     ...userFields(h.assignedUser),
     el("p", { class: "muted" }, "Changing the employee ID moves this computer to that person."),
+    // Unlocked with the PIN already? Then no second prompt; otherwise IT types it here.
+    sv.hasPin ? "" : field("pin", "IT PIN", { type: "password", required: true, hint: "Shown on the PC_READER dashboard. IT needs to enter it to save." }),
     el(
       "div",
       { class: "actions" },
@@ -410,10 +531,13 @@ function editUser(h, notice) {
     e.preventDefault();
     const btn = form.querySelector("button[type=submit]");
     busy(btn, "Saving…", true);
-    const res = await UpdateUser(readUser(form));
+    const res = await UpdateUser(readUser(form), form.elements.pin ? form.elements.pin.value : "");
     busy(btn, "", false);
     showFieldErrors(form, res.fieldErrors ?? {});
+    refreshSession();
     if (res.ok) return home(res.message);
+    // The session's PIN was refused (it changed): show the form again with a PIN field.
+    if (res.needsPin && !form.elements.pin) return editUser(h, res.message);
     banner.replaceChildren(message("error", res.message));
     if (res.needsReregistration) banner.append(reregisterButton());
   });

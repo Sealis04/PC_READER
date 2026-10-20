@@ -5,7 +5,7 @@
 //
 // The app also runs in the background: it starts at login (hidden, tray only), holds the
 // connection to the server and acts on dashboard requests (../internal/background). Closing the
-// window only hides it; there is no quit item, so it runs until the user logs out.
+// window only hides it (and ends the IT PIN session); there is no quit item, so it runs until the user logs out.
 package main
 
 import (
@@ -78,11 +78,18 @@ func (s *shell) showWindow() {
 	wruntime.WindowSetAlwaysOnTop(ctx, false)
 }
 
-// reportNow is the tray's "Report now": the same scan and upload as the window's button.
+// reportNow is the tray's "Report now": the same scan and upload as the window's button, so it needs
+// the IT PIN too. Without an unlocked session the window opens and asks for the PIN first.
 func (s *shell) reportNow() {
+	if !s.app.Session().HasPin {
+		s.showWindow()
+		s.emit("report-needs-pin")
+		return
+	}
 	go func() {
 		s.app.ReportNow()
 		s.emit("reported")
+		s.emit("session")
 	}()
 }
 
@@ -167,8 +174,14 @@ func main() {
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
-		// Closing the window hides it; the app keeps running (tray) until the user logs out.
-		HideWindowOnClose: true,
+		// Closing the window hides it (OnBeforeClose below); the app keeps running (tray) until the user
+		// logs out. Hiding also ends the IT PIN session, so the app is view-only the next time it opens.
+		OnBeforeClose: func(ctx context.Context) bool {
+			s.app.LockITSettings()
+			s.emit("session")
+			wruntime.WindowHide(ctx)
+			return true // prevent the close: the window is only hidden
+		},
 		// The start-at-login entry passes --background: tray only until the user opens the app.
 		StartHidden: hasArg(autostart.BackgroundFlag),
 		// Launching PC_READER again shows the window of the running copy.

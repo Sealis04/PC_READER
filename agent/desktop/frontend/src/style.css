@@ -75,3 +75,9 @@ button.link { border: none; background: none; padding: 4px 8px; color: var(--mut
 .conn { margin-left: auto; font-size: 12px; padding: 1px 8px; border-radius: 99px; border: 1px solid var(--line, #ccc); }
 .conn[data-status="connected"] { color: #1f6f5c; border-color: #1f6f5c; }
 .conn[data-status="offline"], .conn[data-status="reregister"] { color: #8a5300; border-color: #8a5300; }
+
+.session { margin-left: 8px; font-size: 12px; padding: 1px 8px; border-radius: 99px; border: 1px solid var(--ok); color: var(--ok); }
+.session button.link { padding: 0 2px; font-size: 12px; color: inherit; }
+.top .conn { margin-left: auto; }
+.overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.45); display: grid; place-items: center; padding: 24px; z-index: 10; }
+.dialog { width: min(420px, 100%); margin: 0; }
