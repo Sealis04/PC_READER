@@ -20,6 +20,23 @@ See the repo `CLAUDE.md`. In short: bun + Drizzle (no Prisma, no `db:push`; `cd 
 
 ---
 
+## builder-1 — FIX REQUEST (2026-10-20) — macOS app crashes on launch
+
+Base: `main` (f81eaf7, includes #13). **Open your PR into `main`.** Round 4 (confirm-details prompt) may be running in parallel on `bound.go` / `main.js` / server; keep this change to the macOS tray start, CI and docs so the two PRs don't conflict.
+
+**Bug (user's real Mac, Apple Silicon):** `PC_READER.app` dies immediately: `NSInternalInconsistencyException: 'NSWindow should only be instantiated on the main thread!'`. Full diagnosis, trace and a proposed fix are in [`plans/m5-hourly-it-pin/macos-tray-crash.md`](../m5-hourly-it-pin/macos-tray-crash.md) (written on the user's side). Short version: `agent/desktop/main.go` starts the tray from Wails' `OnStartup`, which runs on a goroutine; on macOS `systray.RunWithExternalLoop`'s `start()` → `nativeStart` creates an `NSStatusItem` off the main thread.
+
+**Fix:**
+1. On macOS, run the tray start on the main (Cocoa) thread, e.g. `dispatch_async_f(dispatch_get_main_queue(), …)` via cgo as in the handoff (`mainthread_darwin.go` + `mainthread_other.go` no-op), and call it from `OnStartup`. Make sure **everything** in `tray.Start`/`onReady` that touches AppKit (SetTemplateIcon, AddMenuItem, SetTitle, Disable) runs on the main thread; later updates from `SetStatus` too if `fyne.io/systray` doesn't marshal them itself (check its darwin code). Prefer a `cgo.Handle`/queue over a single global function slot.
+2. Check the other macOS-only paths for the same problem: showing/focusing the window from the tray click handler and from the single-instance callback, `WindowHide`/`OnBeforeClose`, and the details-prompt "open window" path. Use Wails' runtime calls (they dispatch to the main thread) rather than direct AppKit calls.
+3. Windows behaviour unchanged (it runs its own tray thread).
+4. **CI launch smoke test (new):** on `macos-latest`, after building the `.app`, start the binary in the background with a throwaway `PCREADER_HOME` and `PCREADER_NO_AUTOSTART=1`, wait ~15 s, assert the process is still alive, then kill it; print its output on failure. Do the same on `windows-latest` for the exe if practical. This would have caught the crash.
+5. README: add the macOS first-launch steps that worked for the user (unzip twice, move to Applications, `xattr -cr /Applications/PC_READER.app`, Open Anyway) and how to run the binary from Terminal to see errors (`/Applications/PC_READER.app/Contents/MacOS/pcreader-desktop`).
+
+**Done when:** `bun run lint` and `bun run test` pass and CI is green, including the new macOS launch test. Write a short summary under `### From builder-1`. Do not fire the reviewer.
+
+---
+
 ## builder-1 — FIX REQUEST (2026-10-20, M5 round 4) — confirm-details prompt without the PIN
 
 Base: PR #13 (`claude/cool-volta-35mr05`, not merged yet). **Open your PR into `main`, stacked on #13** (say so; merge #13 first). User decision, overrides the round-2 addendum on this one point:
