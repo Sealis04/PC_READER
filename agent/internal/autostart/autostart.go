@@ -21,8 +21,12 @@ const EnvDisable = "PCREADER_NO_AUTOSTART"
 // Name is the Run value name (Windows) and the LaunchAgent label (macOS).
 const (
 	RunValueName = "PC_READER"
-	AgentLabel   = "ph.gov.intramuros.pcreader"
+	AgentLabel   = "io.github.sealis04.pcreader"
 )
+
+// LegacyAgentLabel is the LaunchAgent label earlier versions used. Its plist is removed whenever the
+// current one is written, so an upgraded Mac does not start the app twice at login.
+const LegacyAgentLabel = "ph.gov.intramuros.pcreader"
 
 // Disabled reports whether start-at-login is switched off by the environment.
 func Disabled() bool { return os.Getenv(EnvDisable) == "1" }
@@ -75,6 +79,9 @@ func writePlist(dir, exe string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
+	if err := removeLabel(dir, LegacyAgentLabel); err != nil {
+		return err
+	}
 	path := filepath.Join(dir, AgentLabel+".plist")
 	want := plist(exe)
 	if cur, err := os.ReadFile(path); err == nil && string(cur) == want {
@@ -83,8 +90,16 @@ func writePlist(dir, exe string) error {
 	return os.WriteFile(path, []byte(want), 0o644)
 }
 
+// removePlist removes the LaunchAgent, and the one an earlier version wrote.
 func removePlist(dir string) error {
-	err := os.Remove(filepath.Join(dir, AgentLabel+".plist"))
+	if err := removeLabel(dir, LegacyAgentLabel); err != nil {
+		return err
+	}
+	return removeLabel(dir, AgentLabel)
+}
+
+func removeLabel(dir, label string) error {
+	err := os.Remove(filepath.Join(dir, label+".plist"))
 	if os.IsNotExist(err) {
 		return nil
 	}

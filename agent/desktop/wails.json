@@ -6,10 +6,10 @@
   "frontend:install": "bun install --frozen-lockfile",
   "frontend:build": "bun run build",
   "info": {
-    "companyName": "Intramuros Administration",
+    "companyName": "PC_READER",
     "productName": "PC_READER",
     "productVersion": "0.2.0",
-    "copyright": "Intramuros Administration",
+    "copyright": "PC_READER",
     "comments": "Reports this computer's hardware to IT"
   }
 }

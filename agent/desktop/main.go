@@ -94,6 +94,13 @@ func (s *shell) reportNow() {
 	}()
 }
 
+// refreshBranding fetches the agency name and logo and tells the window to redraw its header. It runs
+// on launch and whenever the connection opens (the address may have changed, or IT edited the settings).
+func (s *shell) refreshBranding() {
+	s.app.RefreshBranding()
+	s.emit("branding")
+}
+
 func (s *shell) emit(event string) {
 	if ctx := s.wailsCtx(); ctx != nil {
 		wruntime.EventsEmit(ctx, event)
@@ -127,6 +134,9 @@ func (s *shell) startRunner() {
 			s.tray.SetStatus(st.Label())
 			s.app.SetConnection(string(st), st.Label())
 			s.emit("connection")
+			if st == background.StatusConnected {
+				go s.refreshBranding()
+			}
 		},
 		OnPrompt: func(req payload.PendingRequest) {
 			s.app.RaisePrompt(req.ID, req.Approval)
@@ -187,7 +197,7 @@ func main() {
 		StartHidden: hasArg(autostart.BackgroundFlag),
 		// Launching PC_READER again shows the window of the running copy.
 		SingleInstanceLock: &options.SingleInstanceLock{
-			UniqueId:               "gov.ph.intramuros.pc-reader",
+			UniqueId:               "pc-reader.desktop",
 			OnSecondInstanceLaunch: func(options.SecondInstanceData) { s.showWindow() },
 		},
 		OnStartup: func(ctx context.Context) {
@@ -196,6 +206,8 @@ func main() {
 			s.mu.Unlock()
 			s.app.Startup(ctx)
 			s.tray.Start()
+			// The saved name and logo show at once; this refreshes them when the server answers.
+			go s.refreshBranding()
 			// A computer that is already set up (registered) connects at once.
 			if st, err := svc.Status(); err == nil && st.Registered && st.TokenErr == nil {
 				s.ready()

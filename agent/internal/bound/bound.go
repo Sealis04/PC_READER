@@ -35,6 +35,8 @@ const (
 	unlockSession  = 10 * time.Minute
 	// unlockTimeout is how long the server gets to answer before Settings falls back to the enrollment key.
 	unlockTimeout = 8 * time.Second
+	// brandingTimeout bounds one fetch of the agency name and logo.
+	brandingTimeout = 15 * time.Second
 )
 
 // Unlock modes: what the Settings prompt asks for.
@@ -101,6 +103,38 @@ func (a *App) Connection() ConnectionView {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return ConnectionView{Status: a.connStatus, Label: a.connLabel}
+}
+
+// DefaultBrandName is shown until a server has told the app its agency name.
+const DefaultBrandName = "PC_READER"
+
+// BrandingView is what the window header shows: the agency name and, when the server has one, the logo
+// as a data: URL ("" for none).
+type BrandingView struct {
+	Name string `json:"name"`
+	Logo string `json:"logo"`
+}
+
+func brandingView(b *config.Branding) BrandingView {
+	if b == nil || b.Name == "" {
+		return BrandingView{Name: DefaultBrandName}
+	}
+	return BrandingView{Name: b.Name, Logo: b.Logo}
+}
+
+// Branding is the saved agency name and logo (no network, so it is instant and works offline).
+func (a *App) Branding() BrandingView { return brandingView(a.svc.CachedBranding()) }
+
+// RefreshBranding fetches the agency name and logo from the server and returns what to show: the new
+// branding, or the saved one when the server cannot be reached. The shell calls it on launch and when the
+// connection opens; the window listens for the "branding" event it emits afterwards.
+func (a *App) RefreshBranding() BrandingView { return a.refreshBranding("") }
+
+func (a *App) refreshBranding(serverURL string) BrandingView {
+	ctx, cancel := context.WithTimeout(a.ctx, brandingTimeout)
+	defer cancel()
+	b, _ := a.svc.RefreshBranding(ctx, serverURL)
+	return brandingView(b)
 }
 
 // RaisePrompt records that IT asked the user to confirm their details (called by the shell), with the
@@ -296,6 +330,8 @@ func (a *App) CheckConnection(serverURL, key string) Result {
 	a.mu.Lock()
 	a.pendingServer, a.pendingKey, a.keyFromPrompt = u, strings.TrimSpace(key), false
 	a.mu.Unlock()
+	// Best effort: show this server's agency name and logo on the setup and signup screens.
+	a.refreshBranding(u)
 	return Result{OK: true, Message: "Connected to " + u + "."}
 }
 

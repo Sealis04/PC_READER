@@ -41,6 +41,7 @@ func load() {
 		"settings-unlock":  "agent-api/settings-unlock.request.schema.json",
 		"request-complete": "agent-api/request-complete.request.schema.json",
 		"events-message":   "agent-api/events.message.schema.json",
+		"branding":         "agent-api/branding.response.schema.json",
 	}
 	// Register every schema under its $id so cross-file $refs resolve offline.
 	for _, rel := range files {

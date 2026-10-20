@@ -16,6 +16,7 @@ import {
   Connection,
   TakePrompt,
   Session,
+  Branding,
 } from "../wailsjs/go/bound/App";
 import { EventsOn } from "../wailsjs/runtime/runtime";
 
@@ -156,6 +157,23 @@ EventsOn("connection", refreshConnection);
 EventsOn("prompt-details", checkPrompt);
 refreshConnection();
 document.querySelector("header.top").append(connection);
+
+// ---- the agency's name and logo (set on the server's Settings page, saved here for offline starts) ----
+
+const logo = document.getElementById("logo");
+const brandName = document.getElementById("brand-name");
+
+// The window title stays "PC_READER"; the header shows the agency name and logo.
+async function refreshBranding() {
+  const b = await Branding();
+  brandName.textContent = b.name;
+  logo.hidden = !b.logo;
+  if (b.logo) logo.src = b.logo;
+  else logo.removeAttribute("src");
+}
+
+EventsOn("branding", refreshBranding);
+refreshBranding();
 
 // ---- the IT PIN: without it the app is view-only ----
 

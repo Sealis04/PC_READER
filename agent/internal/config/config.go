@@ -32,8 +32,19 @@ type Config struct {
 	// EnrollmentKeyHash is the salted hash of the enrollment key IT typed at setup. It opens the desktop
 	// app's Settings when the server cannot be reached (the hourly IT PIN is checked by the server).
 	EnrollmentKeyHash *SecretHash `json:"enrollment_key_hash,omitempty"`
+	// Branding is the server's agency name and logo as last fetched, so the window shows them on an offline start.
+	Branding *Branding `json:"branding,omitempty"`
 	// LegacyITPin is the per-PC PIN hash older versions saved. It is read only to be removed.
 	LegacyITPin json.RawMessage `json:"it_pin,omitempty"`
+}
+
+// Branding is the agency name and logo the server showed when last asked. Logo is the image as a data: URL
+// (at most 512 KB on the server), so the window needs no network to draw it; LogoURL is the server path and
+// version it came from, which tells the app when a fetch is not needed.
+type Branding struct {
+	Name    string `json:"name"`
+	LogoURL string `json:"logo_url,omitempty"`
+	Logo    string `json:"logo,omitempty"`
 }
 
 // Dir is the app data folder: %AppData%\PCReader on Windows,
