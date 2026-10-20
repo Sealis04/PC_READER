@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getDb } from "@/db";
+import { requireStaff } from "@/lib/staff-auth";
 import type { Component } from "@/db/schema";
 import { InventoryPanel } from "../_components/inventory-panel";
 import { RequestActions, type RequestRow } from "../_components/request-actions";
@@ -73,6 +74,7 @@ export default async function DevicePage({
   searchParams: Promise<{ level?: string }>;
 }) {
   const { id } = await params;
+  await requireStaff(`/devices/${id}`);
   const { level: levelParam } = await searchParams;
   if (!UUID_RE.test(id)) notFound();
   const db = getDb();

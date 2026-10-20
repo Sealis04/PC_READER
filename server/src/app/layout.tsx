@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { getDb } from "@/db";
 import { safeBranding } from "@/lib/settings";
+import { getStaff } from "@/lib/staff-auth";
+import { SignOutButton } from "./_components/sign-out-button";
 import "./globals.css";
 
 // The agency name and logo come from the database (dashboard Settings), so nothing is prerendered.
@@ -17,6 +19,7 @@ export async function generateMetadata(): Promise<Metadata> {
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const { name, logo_url } = await safeBranding(getDb);
+  const staff = await getStaff();
   return (
     <html lang="en">
       <body>
@@ -30,11 +33,19 @@ export default async function RootLayout({ children }: { children: React.ReactNo
               )}
               {name}
             </Link>
-            <nav>
-              <Link href="/devices">Devices</Link>
-              <Link href="/it-pin">IT PIN</Link>
-              <Link href="/settings">Settings</Link>
-            </nav>
+            {staff && (
+              <>
+                <nav>
+                  <Link href="/devices">Devices</Link>
+                  <Link href="/it-pin">IT PIN</Link>
+                  <Link href="/settings">Settings</Link>
+                </nav>
+                <div className="who">
+                  <span className="sub">{staff.name}</span>
+                  <SignOutButton />
+                </div>
+              </>
+            )}
           </div>
         </header>
         <main>{children}</main>

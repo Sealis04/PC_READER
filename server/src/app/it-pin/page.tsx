@@ -1,4 +1,5 @@
 import { getDb } from "@/db";
+import { requireStaff } from "@/lib/staff-auth";
 import { currentPin } from "@/lib/it-pin";
 import { TIME_ZONE } from "@/lib/format";
 import { PinBox } from "./pin-box";
@@ -6,6 +7,7 @@ import { PinBox } from "./pin-box";
 export const dynamic = "force-dynamic";
 
 export default async function ItPinPage() {
+  await requireStaff("/it-pin");
   const { pin, expiresAt } = await currentPin(getDb());
   return (
     <>

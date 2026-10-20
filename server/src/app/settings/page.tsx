@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { getDb } from "@/db";
+import { requireStaff } from "@/lib/staff-auth";
 import { logoUrl, getSettings, MAX_LOGO_BYTES, MAX_PREFIX_LENGTH, MIN_PREFIX_LENGTH } from "@/lib/settings";
 import { SettingsForm } from "./settings-form";
 
@@ -7,6 +8,7 @@ export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Settings" };
 
 export default async function SettingsPage() {
+  await requireStaff("/settings");
   const s = await getSettings(getDb());
   return (
     <>
