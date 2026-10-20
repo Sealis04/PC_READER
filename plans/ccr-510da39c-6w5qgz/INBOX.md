@@ -192,3 +192,9 @@ Not used for M5. builder-1: write your summary here under `### From builder-1` (
 **Files changed:** `agent/internal/bound/bound.go`, `bound_test.go`, `agent/desktop/frontend/src/main.js`, `agent/README.md`.
 **What was done:** when the server answers 401 (token rejected) the key prompt no longer checks the local hash: the typed key is held in memory and the signup form opens (prefilled, with the IT PIN field); the server checks key + PIN at `/register`. A wrong key there counts toward the shared 5-tries lockout and returns to the key field (`Result.NeedsKey`). The hash fallback and its "no saved enrollment key … unreachable" message now only appear when the server is unreachable. README paragraph + wipe note added.
 **What to check:** typing a key at the rejected prompt does not unlock Settings (nothing to verify it against until `/register`). Not verified: the Wails frontend on a real PC (`main.js` flow `itLogin` → `signup`/`setup`); Go tests, `bun run lint` pass. `bun run test` server part not run here (needs Postgres); no server change.
+
+### From builder-1 (macOS launch crash fix)
+- `agent/desktop/mainthread_darwin.go` / `mainthread_other.go`: `runOnMainThread` (GCD `dispatch_async_f` + `cgo.Handle`; no-op passthrough elsewhere). `tray.Start` now dispatches `systray`'s `start` through it; `t.end` access is mutex-guarded. Windows path unchanged.
+- Checked `fyne.io/systray` v1.12.2 darwin code: later updates (`SetTitle`, menu items, icons) go through `performSelectorOnMainThread`, so `onReady`/`SetStatus` need no extra dispatch. Window show/hide use Wails runtime calls (main-thread safe), no direct AppKit.
+- CI: "Launch smoke test" step in the `desktop` job (macOS + Windows): app must be alive after 15 s. README: macOS first-launch steps + running from Terminal + the new main-thread note.
+- Not verified locally (Linux): Windows vet and desktop tests pass; the darwin build/launch is covered only by the new CI job.
