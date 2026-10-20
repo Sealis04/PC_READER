@@ -32,6 +32,7 @@ header.top { background: var(--surface); border-bottom: 1px solid var(--line); }
 header.top .inner, main { max-width: 1200px; margin: 0 auto; padding: 0 16px; }
 header.top .inner { display: flex; align-items: center; gap: 24px; height: 52px; }
 header.top .brand { font-weight: 700; text-decoration: none; color: var(--fg); letter-spacing: 0.02em; }
+header.top nav { display: flex; align-items: center; gap: 20px; }
 header.top nav a { color: var(--muted); text-decoration: none; }
 header.top nav a:hover { color: var(--fg); }
 main { padding-block: 24px 48px; display: grid; gap: 24px; }
