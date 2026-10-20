@@ -20,6 +20,24 @@ See the repo `CLAUDE.md`. In short: bun + Drizzle (no Prisma, no `db:push`; `cd 
 
 ---
 
+## builder-1 — FIX REQUEST (2026-10-20, M5 round 3) — re-registration dead end
+
+Base: `main` (M2–M5 merged via #11) + the navbar fix on `claude/fervent-mendel-9y30q4` (PR #12). **Open your PR into `main`** (the feature branch is finished).
+
+**Bug (user's real Windows PC):** the user wiped the server database (`docker compose down -v`). The PC's token was then rejected (401) and the app showed Settings with "The server no longer recognises this computer. Enter the enrollment key to register it again." plus the red error "This computer has no saved enrollment key, so Settings cannot be opened while the server is unreachable…". It was a dead end: the PC was registered before M5 (no `enrollment_key_hash`), and the server **was** reachable.
+
+**Fix:**
+1. **Token rejected (401) but server reachable:** do not use the local hash. Take the typed enrollment key in memory and go straight to re-registration (signup form prefilled with the saved user details + IT PIN field). The server checks the key and the PIN during `/register` (403 wrong key → "That enrollment key is not correct", 403 wrong_pin, 429 as today). After success save the new token and the `enrollment_key_hash`. Wrong keys count toward the shared 5-tries lockout.
+2. **Server truly unreachable** (no reply / timeout / 5xx): keep the current local-hash fallback for Settings only.
+3. **Messages:** the "no saved enrollment key … server is unreachable" text may only appear when the server is actually unreachable. On a 401 never mention "unreachable".
+4. Re-registering the same PC after a DB wipe creates a fresh device row; that is expected. If the server still has the device (e.g. token revoked), registering again with the same `device_uuid` must update that device as `/register` already does.
+5. Tests: bound tests for 401 + no hash → re-registration works with a correct key (fake server), wrong key counts a try, unreachable + no hash → the existing message; server test only if `/register` behaviour changes.
+6. Docs: `agent/README.md` paragraph about the fallback; add "After wiping the server database, every PC shows *Re-registration needed*: enter the enrollment key and the current IT PIN."
+
+**Done when:** `bun run lint` and `bun run test` pass and CI (desktop builds included) is green on your PR into `main`. Write a `#### Round 3` summary under `### From builder-1`. Do not fire the reviewer.
+
+---
+
 ## builder-1 — ADDENDUM to M5 round 2 (2026-10-20) — overrides round 2 where they differ
 
 User rule: **without the IT PIN, the desktop app is view-only.** Users can look at My computer and Full details; every action needs the hourly IT PIN:
@@ -136,3 +154,9 @@ Not used for M5. builder-1: write your summary here under `### From builder-1` (
 
 **Could not verify**
 - Real `wails build` and a click-through on a PC (CI builds the desktop apps); the frontend has no tests, only a syntax check.
+
+#### Round 3 (2026-10-20) — re-registration dead end
+
+**Files changed:** `agent/internal/bound/bound.go`, `bound_test.go`, `agent/desktop/frontend/src/main.js`, `agent/README.md`.
+**What was done:** when the server answers 401 (token rejected) the key prompt no longer checks the local hash: the typed key is held in memory and the signup form opens (prefilled, with the IT PIN field); the server checks key + PIN at `/register`. A wrong key there counts toward the shared 5-tries lockout and returns to the key field (`Result.NeedsKey`). The hash fallback and its "no saved enrollment key … unreachable" message now only appear when the server is unreachable. README paragraph + wipe note added.
+**What to check:** typing a key at the rejected prompt does not unlock Settings (nothing to verify it against until `/register`). Not verified: the Wails frontend on a real PC (`main.js` flow `itLogin` → `signup`/`setup`); Go tests, `bun run lint` pass. `bun run test` server part not run here (needs Postgres); no server change.
