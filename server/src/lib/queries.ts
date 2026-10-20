@@ -1,11 +1,12 @@
 import type { ScanPayload } from "@pcreader/contracts";
-import { and, asc, desc, eq, gte, ilike, isNull, lt, or, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, exists, gte, ilike, isNull, lt, lte, or, sql, type SQL } from "drizzle-orm";
 import type { Db } from "@/db";
 import {
   assignments,
   components,
   customFields,
   deviceFieldHistory,
+  deviceFieldValues,
   deviceLogs,
   deviceRequests,
   devices,
@@ -25,6 +26,30 @@ export interface DeviceListFilters {
   os?: Device["osType"];
   // Matches inventory number, hostname, serial number, and the assigned user's name or employee ID.
   q?: string;
+  // Custom date field filter: devices whose value for this field is on/after `after` and/or on/before
+  // `before` (YYYY-MM-DD). Devices without a value never match.
+  dateField?: { fieldId: string; after?: string; before?: string };
+}
+
+function dateCondition(db: Db, f: DeviceListFilters["dateField"]): SQL | undefined {
+  if (!f || (!f.after && !f.before)) return undefined;
+  return exists(
+    db
+      .select({ one: sql`1` })
+      .from(deviceFieldValues)
+      .innerJoin(customFields, eq(customFields.id, deviceFieldValues.fieldId))
+      .where(
+        and(
+          eq(deviceFieldValues.deviceId, devices.id),
+          eq(deviceFieldValues.fieldId, f.fieldId),
+          eq(customFields.type, "date"),
+          isNull(customFields.archivedAt),
+          // YYYY-MM-DD strings compare correctly as text.
+          f.after ? gte(deviceFieldValues.dateValue, f.after) : undefined,
+          f.before ? lte(deviceFieldValues.dateValue, f.before) : undefined,
+        ),
+      ),
+  );
 }
 
 // One query for the whole list (no per-device lookups). The connection and status filters are
@@ -53,8 +78,17 @@ export async function listDevices(db: Db, filters: DeviceListFilters = {}, now =
           ilike(devices.serialNumber, pattern),
           ilike(users.fullName, pattern),
           ilike(users.employeeId, pattern),
+          // Text custom fields are searchable; secrets and dates are not part of q.
+          exists(
+            db
+              .select({ one: sql`1` })
+              .from(deviceFieldValues)
+              .innerJoin(customFields, eq(customFields.id, deviceFieldValues.fieldId))
+              .where(and(eq(deviceFieldValues.deviceId, devices.id), eq(customFields.type, "text"), isNull(customFields.archivedAt), ilike(deviceFieldValues.textValue, pattern))),
+          ),
         )
       : undefined,
+    dateCondition(db, filters.dateField),
   ];
   return db
     .select({
