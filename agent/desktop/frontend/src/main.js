@@ -250,8 +250,8 @@ EventsOn("report-needs-pin", async () => {
   home(res.ok ? res.message : undefined);
 });
 
-function setup(st) {
-  const banner = el("div");
+function setup(st, errorText) {
+  const banner = el("div", {}, errorText ? message("error", errorText) : "");
   const form = el(
     "form",
     { novalidate: true },
@@ -318,6 +318,10 @@ function signup(st) {
     if (res.ok) {
       refreshSession();
       return home(res.message);
+    }
+    if (res.needsKey) {
+      // The server refused the enrollment key: back to the key field.
+      return setup(await State(), res.message);
     }
     banner.replaceChildren(message("error", res.message));
   });
@@ -459,6 +463,11 @@ async function itLogin(next, startMessage) {
     busy(submit, "Checking…", true);
     const res = await UnlockITSettings(input.value);
     busy(submit, next === "reregister" ? "Continue" : "Open Settings", false);
+    if (res.ok && res.mode === "reregister") {
+      // The server rejected this computer: the typed key goes straight to the signup form.
+      const st = await State();
+      return st.screen === "signup" ? signup(st) : setup(st);
+    }
     if (res.ok) {
       refreshSession();
       if (next !== "reregister") return itSettings();

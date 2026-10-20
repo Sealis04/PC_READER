@@ -55,6 +55,7 @@ type App struct {
 	pendingServer string     // set by CheckConnection, used by Signup
 	pendingKey    string     // held in memory only until signup (then only its hash is saved)
 	reregistering bool
+	keyFromPrompt bool      // the pending key was typed at the rejected-token prompt, so a wrong one counts as a wrong try
 	keyReason     string    // "offline" or "rejected" once Settings asks for the enrollment key instead of the PIN
 	unlockedUntil time.Time // the IT session is open until then (zero: locked)
 	sessionPin    string    // the PIN the server accepted, kept in memory only to send with this session's actions; "" after a key unlock
@@ -194,6 +195,8 @@ type Result struct {
 	NeedsReregistration bool `json:"needsReregistration"`
 	// NeedsPin means the action did not run because the IT PIN is missing or was not accepted: ask for it.
 	NeedsPin bool `json:"needsPin"`
+	// NeedsKey means registration was refused for the enrollment key: go back to the key field.
+	NeedsKey bool `json:"needsKey"`
 }
 
 var needPinResult = Result{Message: "Enter the IT PIN first.", NeedsPin: true, FieldErrors: map[string]string{"pin": "Enter the IT PIN"}}
@@ -221,7 +224,7 @@ func (a *App) CheckConnection(serverURL, key string) Result {
 		return a.connectionFailure(err, serverURL)
 	}
 	a.mu.Lock()
-	a.pendingServer, a.pendingKey = u, strings.TrimSpace(key)
+	a.pendingServer, a.pendingKey, a.keyFromPrompt = u, strings.TrimSpace(key), false
 	a.mu.Unlock()
 	return Result{OK: true, Message: "Connected to " + u + "."}
 }
@@ -294,6 +297,9 @@ func (a *App) UnlockITSettings(secret string) UnlockResult {
 
 	mode := a.UnlockMode()
 	if mode.Mode == modeKey {
+		if mode.Message == reregisterPromptMessage {
+			return a.startReregistrationWithKey(secret)
+		}
 		return a.unlockWithKey(secret)
 	}
 	pin := strings.TrimSpace(secret)
@@ -433,6 +439,27 @@ func (a *App) switchToKey(reason, msg string) UnlockResult {
 	return UnlockResult{Result: Result{Message: msg}, Mode: modeKey}
 }
 
+// modeReregister is the Mode of an unlock result that went straight to re-registration.
+const modeReregister = "reregister"
+
+// startReregistrationWithKey is the key prompt when the server answered but rejected this computer's token
+// (a wiped database, a revoked token). The local hash is not consulted: the typed key is kept in memory and
+// the signup form opens, where the server checks the key and the IT PIN. Nothing is unlocked here.
+func (a *App) startReregistrationWithKey(key string) UnlockResult {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return a.unlockFail(modeKey, "Enter the enrollment key from IT.")
+	}
+	st, err := a.svc.Status()
+	if err != nil {
+		return a.unlockFail(modeKey, "Could not read this computer's saved settings: "+err.Error())
+	}
+	a.mu.Lock()
+	a.reregistering, a.pendingServer, a.pendingKey, a.keyFromPrompt = true, st.ServerURL, key, true
+	a.mu.Unlock()
+	return UnlockResult{Result: Result{OK: true}, Mode: modeReregister}
+}
+
 // unlockWithKey checks the typed enrollment key against the saved hash. A computer without a saved
 // hash cannot unlock this way; that is said plainly and does not count as a wrong try.
 func (a *App) unlockWithKey(key string) UnlockResult {
@@ -446,11 +473,7 @@ func (a *App) unlockWithKey(key string) UnlockResult {
 	if !st.EnrollmentKeyHash.Verify(key) {
 		return a.countWrong(modeKey, "That enrollment key is not correct.")
 	}
-	why := "the server was unreachable"
-	if a.UnlockMode().Message == reregisterPromptMessage {
-		why = "the server did not recognise this computer"
-	}
-	a.svc.LogEvent("warning", "system", "IT settings were opened with the enrollment key ("+why+")")
+	a.svc.LogEvent("warning", "system", "IT settings were opened with the enrollment key (the server was unreachable)")
 	res := a.unlockOK("")
 	res.Mode = modeKey
 	return res
@@ -461,7 +484,7 @@ func (a *App) unlockWithKey(key string) UnlockResult {
 func (a *App) LockITSettings() {
 	a.mu.Lock()
 	a.unlockedUntil, a.sessionPin = time.Time{}, ""
-	a.reregistering, a.pendingServer, a.pendingKey, a.keyReason = false, "", "", ""
+	a.reregistering, a.pendingServer, a.pendingKey, a.keyReason, a.keyFromPrompt = false, "", "", "", false
 	a.mu.Unlock()
 }
 
@@ -534,7 +557,7 @@ func (a *App) Signup(f UserForm, pin string) Result {
 		return Result{Message: msg, FieldErrors: errs, NeedsPin: !pinOK}
 	}
 	a.mu.Lock()
-	server, key := a.pendingServer, a.pendingKey
+	server, key, fromPrompt := a.pendingServer, a.pendingKey, a.keyFromPrompt
 	a.mu.Unlock()
 	if server == "" || key == "" {
 		return fail("The server is not set up yet. Go back to the IT setup step.")
@@ -549,6 +572,15 @@ func (a *App) Signup(f UserForm, pin string) Result {
 		if res, handled := a.pinRefused(err); handled {
 			return res
 		}
+		var apiErr *api.Error
+		if fromPrompt && errors.As(err, &apiErr) && apiErr.Status == 403 && apiErr.Code == "invalid_enrollment_key" {
+			// A wrong key counts toward the shared lockout; the typed key is dropped so IT enters it again.
+			msg := a.wrongTry("That enrollment key is not correct.")
+			a.mu.Lock()
+			a.pendingServer, a.pendingKey, a.keyFromPrompt = "", "", false
+			a.mu.Unlock()
+			return Result{Message: msg, NeedsKey: true}
+		}
 		return signupFailure(err, server)
 	}
 	out := Result{OK: true, Message: "Registered " + res.Hostname + "."}
@@ -559,7 +591,7 @@ func (a *App) Signup(f UserForm, pin string) Result {
 		out.Message += " The enrollment key could not be saved (" + err.Error() + "); Settings will need the server to open."
 	}
 	a.mu.Lock()
-	a.pendingServer, a.pendingKey, a.reregistering, a.keyReason = "", "", false, ""
+	a.pendingServer, a.pendingKey, a.reregistering, a.keyReason, a.keyFromPrompt = "", "", false, "", false
 	a.unlockedUntil, a.sessionPin, a.pinFailures = time.Time{}, "", 0
 	a.mu.Unlock()
 	a.ready()

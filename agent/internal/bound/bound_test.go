@@ -600,30 +600,63 @@ func TestOfflineWithoutSavedKeyCannotUnlock(t *testing.T) {
 	}
 }
 
-func TestRejectedTokenAsksForTheEnrollmentKeyAndRegistersAgain(t *testing.T) {
-	a, f := registeredWithPin(t)
+func TestRejectedTokenWithoutSavedKeyRegistersAgainWithTheTypedKey(t *testing.T) {
+	a, f := setup(t)
+	// Registered before M5 (no enrollment key hash), then the server database was wiped.
+	if _, err := a.svc.Register(context.Background(), app.RegisterInput{ServerURL: f.URL, Key: "good-key", PIN: testPin, User: payload.UserDetails{FullName: "A", EmployeeID: "E", Department: "D"}}); err != nil {
+		t.Fatal(err)
+	}
 	f.unauthorized = true
-	// The window already knows (background connection) that the server rejects this computer.
 	a.SetConnection("reregister", "Re-registration needed")
 	if p := a.UnlockMode(); p.Mode != "key" || !strings.Contains(p.Message, "enrollment key") {
 		t.Fatalf("prompt %+v", p)
 	}
-	if res := a.UnlockITSettings("wrong"); res.OK || res.Mode != "key" {
+	// The typed key goes straight to re-registration; there is no hash to check it against.
+	res := a.UnlockITSettings("good-key")
+	if !res.OK || res.Mode != "reregister" || strings.Contains(res.Message, "unreachable") {
 		t.Fatalf("%+v", res)
 	}
-	if res := a.UnlockITSettings("good-key"); !res.OK {
-		t.Fatalf("%+v", res)
+	if a.isUnlocked() {
+		t.Fatal("typing a key unlocked Settings")
 	}
-	f.unauthorized = false
-	st := a.StartReregistration()
-	if st.Screen != "setup" {
+	st := a.State()
+	if st.Screen != "signup" || st.User == nil || st.User.FullName != "A" {
 		t.Fatalf("%+v", st)
 	}
-	if res := a.CheckConnection(f.URL, "good-key"); !res.OK {
-		t.Fatalf("%+v", res)
+	if res := a.Signup(form(), "000000"); res.OK || !res.NeedsPin {
+		t.Fatalf("wrong PIN: %+v", res)
 	}
 	if res := a.Signup(form(), testPin); !res.OK {
 		t.Fatalf("%+v", res)
+	}
+	if cfg, _ := config.Load(); cfg.EnrollmentKeyHash == nil || !cfg.EnrollmentKeyHash.Verify("good-key") {
+		t.Fatal("no key hash after re-registering")
+	}
+}
+
+func TestRejectedTokenWrongKeyCountsATry(t *testing.T) {
+	a, f := registeredWithPin(t)
+	f.unauthorized = true
+	a.SetConnection("reregister", "Re-registration needed")
+	for i := 1; i <= 4; i++ {
+		if res := a.UnlockITSettings("bad-key"); !res.OK || a.State().Screen != "signup" {
+			t.Fatalf("%+v", res)
+		}
+		res := a.Signup(form(), testPin)
+		want := fmt.Sprintf("%d tries left", 5-i)
+		if res.OK || !res.NeedsKey || !strings.Contains(res.Message, want) {
+			t.Fatalf("try %d: %+v", i, res)
+		}
+		if a.State().Screen != "setup" {
+			t.Fatal("did not go back to the key field")
+		}
+	}
+	a.UnlockITSettings("bad-key")
+	if res := a.Signup(form(), testPin); !strings.Contains(res.Message, "Too many wrong tries") {
+		t.Fatalf("%+v", res)
+	}
+	if res := a.UnlockITSettings("good-key"); res.OK || !strings.Contains(res.Message, "Too many wrong tries") {
+		t.Fatalf("locked out, got %+v", res)
 	}
 }
 
@@ -1026,5 +1059,20 @@ func TestServerRateLimitOnAnActionAsksToWait(t *testing.T) {
 	}
 	if a.pinFailures != 0 {
 		t.Fatal("a server rate limit was counted as a wrong try")
+	}
+}
+
+func TestUnreachableServerWithoutSavedKeyKeepsTheLocalMessage(t *testing.T) {
+	a, f := setup(t)
+	if _, err := a.svc.Register(context.Background(), app.RegisterInput{ServerURL: f.URL, Key: "good-key", PIN: testPin, User: payload.UserDetails{FullName: "A", EmployeeID: "E", Department: "D"}}); err != nil {
+		t.Fatal(err)
+	}
+	f.unlockStatus = 500
+	if res := a.UnlockITSettings("482913"); res.Mode != "key" {
+		t.Fatalf("%+v", res)
+	}
+	res := a.UnlockITSettings("good-key")
+	if res.OK || res.Mode != "key" || !strings.Contains(res.Message, "no saved enrollment key") {
+		t.Fatalf("%+v", res)
 	}
 }
