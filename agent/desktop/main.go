@@ -5,7 +5,8 @@
 //
 // The app also runs in the background: it starts at login (hidden, tray only), holds the
 // connection to the server and acts on dashboard requests (../internal/background). Closing the
-// window only hides it (and ends the IT PIN session); there is no quit item, so it runs until the user logs out.
+// window only hides it (and ends the IT PIN session); there is no quit item, so it runs until the user logs out
+// (log out, restart and shut down always quit it: quit_darwin.go on macOS).
 package main
 
 import (
@@ -206,6 +207,8 @@ func main() {
 			s.mu.Unlock()
 			s.app.Startup(ctx)
 			s.tray.Start()
+			// macOS: let log out / restart / shut down quit the app (OnBeforeClose would veto it).
+			allowSystemQuit()
 			// The saved name and logo show at once; this refreshes them when the server answers.
 			go s.refreshBranding()
 			// A computer that is already set up (registered) connects at once.
