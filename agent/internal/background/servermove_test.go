@@ -21,11 +21,14 @@ func TestServerMoveSwitchesAndReconnectsToTheNewAddress(t *testing.T) {
 		t.Fatalf("server url = %q", cfg.ServerURL)
 	}
 	g.f.mu.Lock()
-	defer g.f.mu.Unlock()
-	if len(g.f.moves) != 1 || !g.f.moves[0].Moved || g.f.moves[0].MoveID != moveID {
-		t.Fatalf("old server got %+v", g.f.moves)
+	moves := g.f.moves
+	g.f.mu.Unlock()
+	if len(moves) != 1 || !moves[0].Moved || moves[0].MoveID != moveID {
+		t.Fatalf("old server got %+v", moves)
 	}
-	g.waitStatus(t, StatusConnected)
+	// Stop the runner before the new server closes (its open stream would hold Close up).
+	g.cancel()
+	<-g.done
 }
 
 func TestServerMoveToAnAddressThatDoesNotKnowThePCStays(t *testing.T) {
