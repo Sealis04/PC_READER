@@ -4,6 +4,7 @@ import { CONNECTION_LABEL, connectionState, formatDateTime, OS_LABEL, STATUS_LAB
 import { DEVICE_STATUSES, isDeviceStatus } from "@/lib/inventory";
 import { isValidDate, listFields } from "@/lib/custom-fields";
 import { listDepartments, listDevices } from "@/lib/queries";
+import { recoveryStatus } from "@/lib/recovery-key";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +23,7 @@ function ConnectionPill({ device }: { device: { online: boolean; lastSeenAt: Dat
 
 const BAD_STATUS = new Set(["for_disposal", "disposed", "lost"]);
 
-type Params = { connection?: string; status?: string; department?: string; os?: string; q?: string; df?: string; after?: string; before?: string };
+type Params = { recovery?: string; connection?: string; status?: string; department?: string; os?: string; q?: string; df?: string; after?: string; before?: string };
 
 export default async function DevicesPage({ searchParams }: { searchParams: Promise<Params> }) {
   const params = await searchParams;
@@ -37,12 +38,18 @@ export default async function DevicesPage({ searchParams }: { searchParams: Prom
   const after = params.after && isValidDate(params.after) ? params.after : undefined;
   const before = params.before && isValidDate(params.before) ? params.before : undefined;
   const dateFilter = dateField && (after || before) ? { fieldId: dateField.id, after, before } : undefined;
-  const [rows, departments] = await Promise.all([listDevices(db, { connection: filter, status, os, department, q, dateField: dateFilter }), listDepartments(db)]);
-  const filtered = Boolean(filter || status || os || department || q || dateFilter);
+  const recovery = await recoveryStatus(db);
+  const behind = params.recovery === "behind" && recovery.version !== null ? recovery.version : undefined;
+  const [rows, departments] = await Promise.all([
+    listDevices(db, { connection: filter, status, os, department, q, dateField: dateFilter, recoveryBehind: behind }),
+    listDepartments(db),
+  ]);
+  const filtered = Boolean(filter || status || os || department || q || dateFilter || behind);
   // Connection links keep the other filters.
-  const href = (conn?: string) => {
+  const href = (conn?: string, rec = behind !== undefined) => {
     const sp = new URLSearchParams();
     if (conn) sp.set("connection", conn);
+    if (rec) sp.set("recovery", "behind");
     for (const [k, v] of Object.entries({ status, department, os, q, df: dateFilter?.fieldId, after: dateFilter?.after, before: dateFilter?.before })) if (v) sp.set(k, v);
     const qs = sp.toString();
     return qs ? `/devices?${qs}` : "/devices";
@@ -57,6 +64,7 @@ export default async function DevicesPage({ searchParams }: { searchParams: Prom
         </p>
         <form className="search" action="/devices" method="get">
           {filter && <input type="hidden" name="connection" value={filter} />}
+          {behind !== undefined && <input type="hidden" name="recovery" value="behind" />}
           <label>
             Search
             <input type="search" name="q" defaultValue={q} placeholder="Number, hostname, user, serial, custom text fields" style={{ minWidth: 300 }} />
@@ -125,6 +133,11 @@ export default async function DevicesPage({ searchParams }: { searchParams: Prom
               {f.label}
             </Link>
           ))}
+          {recovery.enabled && (
+            <Link href={href(filter, behind === undefined)} aria-current={behind !== undefined}>
+              Recovery key behind ({recovery.behind})
+            </Link>
+          )}
         </nav>
       </div>
       <div className="panel">

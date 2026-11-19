@@ -5,7 +5,8 @@ import { deviceRequests, devices } from "@/db/schema";
 import { authenticateDevice } from "@/lib/agent/auth";
 import { errorResponse } from "@/lib/http";
 import { approvalFor } from "@/lib/it-pin";
-import { registerConnection, subscribe } from "@/lib/notifier";
+import { registerConnection, subscribe, subscribeBroadcast, type BroadcastKind } from "@/lib/notifier";
+import { pcHashForCurrent } from "@/lib/recovery-key";
 import { expireStalePrompts } from "@/lib/requests";
 
 export const HEARTBEAT_SECONDS = 25;
@@ -43,6 +44,7 @@ export async function handleEvents(req: Request, db: Db): Promise<Response> {
       const timers: { heartbeat?: ReturnType<typeof setInterval> } = {};
       let unsubscribe = () => {};
       let forget = () => {};
+      let unsubscribeAll = () => {};
       let chain: Promise<void> = Promise.resolve();
 
       const send = (chunk: Uint8Array) => {
@@ -54,6 +56,7 @@ export async function handleEvents(req: Request, db: Db): Promise<Response> {
         closed = true;
         clearInterval(timers.heartbeat);
         unsubscribe();
+        unsubscribeAll();
         forget();
         try {
           controller.close();
@@ -100,8 +103,26 @@ export async function handleEvents(req: Request, db: Db): Promise<Response> {
         return chain;
       };
 
+      // Server-wide news: the current recovery key's hash (on connect only when this PC has not
+      // acknowledged it; on rotation always).
+      const announce = (kind: BroadcastKind, onConnect: boolean) => {
+        chain = chain.then(async () => {
+          if (closed) return;
+          if (kind === "recovery_key") {
+            const current = await pcHashForCurrent(db);
+            if (current && (!onConnect || device.recoveryKeyVersion !== current.version)) {
+              send(frame({ event: "recovery_key", data: current }));
+            }
+          }
+        }).catch(() => {
+          // sent again on the next reconnect
+        });
+        return chain;
+      };
+
       // Subscribe before reading so a request queued meanwhile is not missed.
       unsubscribe = subscribe(device.id, () => void flush(false));
+      unsubscribeAll = subscribeBroadcast((kind) => void announce(kind, false));
       forget = registerConnection(device.id, { id: connectionId, close: () => void cleanup() });
       const now = new Date();
       await db
@@ -110,6 +131,7 @@ export async function handleEvents(req: Request, db: Db): Promise<Response> {
         .where(eq(devices.id, device.id));
       send(frame({ event: "hello", data: { heartbeat_seconds: HEARTBEAT_SECONDS } }));
       await flush(true);
+      await announce("recovery_key", true);
       timers.heartbeat = setInterval(() => send(encoder.encode(": heartbeat\n\n")), HEARTBEAT_SECONDS * 1000);
       req.signal.addEventListener("abort", () => void cleanup());
       if (req.signal.aborted) await cleanup();

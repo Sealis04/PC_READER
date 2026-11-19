@@ -19,68 +19,27 @@ import { handleNetwork } from "@/lib/agent/network";
 import { handleRequestComplete } from "@/lib/agent/complete";
 import { handleListRequests, handleQueueRequest } from "@/lib/dashboard-requests";
 import { deriveApproval } from "@/lib/it-pin";
+import { pcHashForCurrent } from "@/lib/recovery-key";
 import { PROMPT_EXPIRED_MESSAGE, queueRequest } from "@/lib/requests";
-import { jsonRequest, loadFixture, payloadFixture, prepareDatabase, registerFixture, resetDatabase, scanBody, TEST_PIN_SECRET } from "./helpers";
+import { auth, jsonRequest, loadFixture, Stream, payloadFixture, prepareDatabase, registerFixture, resetDatabase, scanBody, TEST_PIN_SECRET } from "./helpers";
 
 beforeAll(prepareDatabase);
 beforeEach(resetDatabase);
 afterAll(closeDb);
 
-const auth = (token: string) => ({ authorization: `Bearer ${token}` });
 
-async function registerDevice(fixture = "windows-desktop"): Promise<{ token: string; deviceId: string }> {
+// The device has acknowledged the current recovery key unless keyAcked is false, so the stream carries
+// no recovery_key event (the recovery key tests check that event themselves).
+async function registerDevice(fixture = "windows-desktop", keyAcked = true): Promise<{ token: string; deviceId: string }> {
   const res = await handleRegister(jsonRequest("/api/agent/register", registerFixture(fixture)), getDb());
   const body = (await res.json()) as RegisterResponse;
+  if (keyAcked) {
+    const current = await pcHashForCurrent(getDb());
+    await getDb().update(devices).set({ recoveryKeyVersion: current!.version }).where(eq(devices.id, body.device_id));
+  }
   return { token: body.device_token, deviceId: body.device_id };
 }
 
-// Reads the SSE stream frame by frame.
-class Stream {
-  private reader: ReadableStreamDefaultReader<Uint8Array>;
-  private buffer = "";
-  private decoder = new TextDecoder();
-  readonly abort = new AbortController();
-
-  private constructor(readonly response: Response) {
-    this.reader = response.body!.getReader();
-  }
-
-  static async open(token: string | null, version = "0.3.0-test"): Promise<Stream> {
-    const abort = new AbortController();
-    const req = new Request(`http://localhost/api/agent/events?agent_version=${encodeURIComponent(version)}`, {
-      headers: token ? auth(token) : {},
-      signal: abort.signal,
-    });
-    const s = new Stream(await handleEvents(req, getDb()));
-    (s as { abort: AbortController }).abort = abort;
-    return s;
-  }
-
-  async next(timeoutMs = 3000): Promise<{ event: string; data: unknown }> {
-    for (;;) {
-      const end = this.buffer.indexOf("\n\n");
-      if (end >= 0) {
-        const raw = this.buffer.slice(0, end);
-        this.buffer = this.buffer.slice(end + 2);
-        if (raw.startsWith(":")) continue;
-        const event = /^event: (.*)$/m.exec(raw)![1];
-        const data = JSON.parse(/^data: (.*)$/m.exec(raw)![1]);
-        return { event, data };
-      }
-      const chunk = await Promise.race([
-        this.reader.read(),
-        new Promise<never>((_, rej) => setTimeout(() => rej(new Error("timed out waiting for an event")), timeoutMs)),
-      ]);
-      if (chunk.done) throw new Error("stream closed");
-      this.buffer += this.decoder.decode(chunk.value);
-    }
-  }
-
-  async close() {
-    this.abort.abort();
-    await this.reader.cancel().catch(() => {});
-  }
-}
 
 const getDevice = async (id: string) => (await getDb().select().from(devices).where(eq(devices.id, id)))[0];
 const settle = () => new Promise((r) => setTimeout(r, 50));

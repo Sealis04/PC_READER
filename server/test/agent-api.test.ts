@@ -58,14 +58,17 @@ describe("POST /api/agent/register", () => {
     expect(await getDb().select().from(devices)).toHaveLength(0);
   });
 
-  test("returns 503 when the server has no enrollment key configured", async () => {
+  test("returns 503 when the server has neither SECRETS_KEY nor ENROLLMENT_KEY", async () => {
     const saved = process.env.ENROLLMENT_KEY;
+    const secrets = process.env.SECRETS_KEY;
     delete process.env.ENROLLMENT_KEY;
+    delete process.env.SECRETS_KEY;
     try {
       const { res } = await register();
       expect(res.status).toBe(503);
     } finally {
       process.env.ENROLLMENT_KEY = saved;
+      process.env.SECRETS_KEY = secrets;
     }
   });
 

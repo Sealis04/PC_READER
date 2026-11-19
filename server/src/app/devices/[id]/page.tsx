@@ -19,6 +19,8 @@ import {
 } from "@/lib/format";
 import { getDeviceFields, getSecretAccessLog } from "@/lib/custom-fields";
 import { getUnlockAttempts, PIN_METHOD_LABEL } from "@/lib/it-pin";
+import { RecoveryKeyReveal } from "@/app/_components/recovery-key-reveal";
+import { recoveryStatus, versionLabel } from "@/lib/recovery-key";
 import { secretsDisabledReason } from "@/lib/secrets-crypto";
 import { REQUEST_TYPES } from "@/lib/requests";
 import { getDeviceDetail, getDeviceHistory, getDeviceLogs, getLatestRequests, getNetworkHistory, LOG_LIMIT, NETWORK_LIMIT } from "@/lib/queries";
@@ -85,7 +87,7 @@ export default async function DevicePage({
   const detail = await getDeviceDetail(db, id);
   if (!detail) notFound();
   const level = LEVELS.find((l) => l === levelParam);
-  const [latestRequests, logs, network, history, unlocks, customRows, secretLog] = await Promise.all([
+  const [latestRequests, logs, network, history, unlocks, customRows, secretLog, recovery] = await Promise.all([
     getLatestRequests(db, id),
     getDeviceLogs(db, id, level),
     getNetworkHistory(db, id),
@@ -93,6 +95,7 @@ export default async function DevicePage({
     getUnlockAttempts(db, id),
     getDeviceFields(db, id),
     getSecretAccessLog(db, id),
+    recoveryStatus(db),
   ]);
   const fieldRows: FieldRow[] = customRows.map((r) => ({
     id: r.field.id,
@@ -203,7 +206,12 @@ export default async function DevicePage({
             <dd>{formatDateTime(device.lastSeenAt)}</dd>
             <dt>Device ID</dt>
             <dd className="mono">{device.deviceUuid}</dd>
+            <dt>Recovery key</dt>
+            <dd>{recovery.enabled ? versionLabel(device.recoveryKeyVersion, recovery.version) : "—"}</dd>
           </dl>
+          {recovery.enabled && device.recoveryKeyVersion !== null && (
+            <RecoveryKeyReveal url={`/api/dashboard/devices/${device.id}/recovery-key/reveal`} label="Show this PC's recovery key" />
+          )}
         </section>
       </div>
 
