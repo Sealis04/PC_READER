@@ -18,6 +18,7 @@ import {
   type DeviceLog,
 } from "@/db/schema";
 import { STALE_MS, type ConnectionState } from "@/lib/format";
+import { behindCondition } from "@/lib/recovery-key";
 
 export interface DeviceListFilters {
   connection?: ConnectionState;
@@ -29,6 +30,8 @@ export interface DeviceListFilters {
   // Custom date field filter: devices whose value for this field is on/after `after` and/or on/before
   // `before` (YYYY-MM-DD). Devices without a value never match.
   dateField?: { fieldId: string; after?: string; before?: string };
+  // Registered devices holding an older or unknown recovery key than this (the current) version.
+  recoveryBehind?: number;
 }
 
 function dateCondition(db: Db, f: DeviceListFilters["dateField"]): SQL | undefined {
@@ -89,6 +92,7 @@ export async function listDevices(db: Db, filters: DeviceListFilters = {}, now =
         )
       : undefined,
     dateCondition(db, filters.dateField),
+    filters.recoveryBehind !== undefined ? behindCondition(filters.recoveryBehind) : undefined,
   ];
   return db
     .select({
@@ -105,6 +109,7 @@ export async function listDevices(db: Db, filters: DeviceListFilters = {}, now =
       lastFullScanAt: devices.lastFullScanAt,
       online: devices.online,
       agentVersion: devices.agentVersion,
+      recoveryKeyVersion: devices.recoveryKeyVersion,
       userName: users.fullName,
       employeeId: users.employeeId,
       department: users.department,

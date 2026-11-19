@@ -7,6 +7,10 @@ import {
   validateEventsMessage,
   validateEventsRequest,
   validateLogsRequest,
+  validateMeResponse,
+  validateMoveResultRequest,
+  validateOkResponse,
+  validateRecoveryKeyAckRequest,
   validateLogsResponse,
   validateNetworkRequest,
   validateNetworkSnapshot,
@@ -189,6 +193,45 @@ describe("events fixtures", () => {
     const m = load("events/request-scan-now.json");
     m.data.type = "reboot";
     expect(validateEventsMessage(m)).toBe(false);
+  });
+});
+
+describe("recovery key and server move (M7)", () => {
+  test("recovery_key carries a version and a PBKDF2 hash, never a key", () => {
+    const m = load("events/recovery-key.json");
+    expect(validateEventsMessage({ ...m, data: { ...m.data, key: "K7QM2XRP9WDFH4TN" } })).toBe(false);
+    expect(validateEventsMessage({ ...m, data: { ...m.data, version: 0 } })).toBe(false);
+    expect(validateEventsMessage({ ...m, data: { ...m.data, hash: { ...m.data.hash, algorithm: "sha1" } } })).toBe(false);
+    expect(validateEventsMessage({ ...m, data: { ...m.data, hash: { ...m.data.hash, salt: "short" } } })).toBe(false);
+  });
+  test("server_moved needs an http(s) address without query", () => {
+    const m = load("events/server-moved.json");
+    for (const url of ["ftp://x", "http://", "http://host:3000/?a=1", "pcreader.local", "http://a b"]) {
+      expect(validateEventsMessage({ ...m, data: { ...m.data, url } })).toBe(false);
+    }
+    expect(validateEventsMessage({ ...m, data: { ...m.data, url: "https://10.0.0.5:8443" } })).toBe(true);
+    expect(validateEventsMessage({ ...m, data: { ...m.data, move_id: "x" } })).toBe(false);
+  });
+  test("ack, ok and me fixtures", () => {
+    expect(validateRecoveryKeyAckRequest(load("recovery-key/ack.json"))).toBe(true);
+    expect(validateRecoveryKeyAckRequest({ version: 0 })).toBe(false);
+    expect(validateRecoveryKeyAckRequest({ version: "3" })).toBe(false);
+    expect(validateOkResponse(load("recovery-key/ok.json"))).toBe(true);
+    expect(validateMeResponse(load("me/response.json"))).toBe(true);
+    expect(validateMeResponse({ device_id: "nope" })).toBe(false);
+  });
+  for (const name of files("move-result")) {
+    test(`${name} matches move-result.request`, () => {
+      const ok = validateMoveResultRequest(load(`move-result/${name}`));
+      expect(formatErrors(validateMoveResultRequest.errors)).toEqual([]);
+      expect(ok).toBe(true);
+    });
+  }
+  test("a failed move needs a reason; a successful one has none", () => {
+    const id = load("move-result/moved.json").move_id;
+    expect(validateMoveResultRequest({ move_id: id, moved: false })).toBe(false);
+    expect(validateMoveResultRequest({ move_id: id, moved: true, reason: "unreachable" })).toBe(false);
+    expect(validateMoveResultRequest({ move_id: id, moved: false, reason: "other" })).toBe(false);
   });
 });
 

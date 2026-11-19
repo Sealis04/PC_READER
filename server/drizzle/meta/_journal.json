@@ -57,6 +57,13 @@
       "when": 1792474019998,
       "tag": "0007_nostalgic_slayback",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1795072879886,
+      "tag": "0008_typical_harrier",
+      "breakpoints": true
     }
   ]
 }

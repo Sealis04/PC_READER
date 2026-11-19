@@ -4,7 +4,8 @@ import type { Db } from "@/db";
 import { assignments, devices, users } from "@/db/schema";
 import { clientIp, pinErrorResponse, verifyPin } from "@/lib/it-pin";
 import { HttpError, errorResponse, jsonResponse, readJson } from "@/lib/http";
-import { generateDeviceToken, hashToken, secretsMatch } from "@/lib/tokens";
+import { currentKeyMatches } from "@/lib/recovery-key";
+import { generateDeviceToken, hashToken } from "@/lib/tokens";
 
 export const SELF_REGISTRATION = "self-registration";
 
@@ -28,11 +29,13 @@ export async function handleRegister(req: Request, db: Db): Promise<Response> {
     return errorResponse(400, "invalid_payload", "Request does not match register.request schema", formatErrors(validateRegisterRequest.errors));
   }
 
-  const expectedKey = process.env.ENROLLMENT_KEY;
-  if (!expectedKey) {
+  // The current recovery key (lib/recovery-key.ts; ENROLLMENT_KEY only without SECRETS_KEY). Older
+  // versions never register a PC.
+  const keyOk = await currentKeyMatches(db, body.enrollment_key);
+  if (keyOk === "disabled") {
     return errorResponse(503, "enrollment_disabled", "Server has no ENROLLMENT_KEY configured");
   }
-  if (!secretsMatch(body.enrollment_key, expectedKey)) {
+  if (!keyOk) {
     return errorResponse(403, "invalid_enrollment_key", "Enrollment key is not valid");
   }
 

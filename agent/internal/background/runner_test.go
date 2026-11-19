@@ -35,6 +35,9 @@ type fakeServer struct {
 	maxLogs    int // 413 above this many entries per upload (0: no limit)
 	unauth     atomic.Bool
 	streams    atomic.Int32
+	acks       []int // recovery key versions acknowledged
+	moves      []payload.MoveResult
+	meID       string // the device id GET /me answers ("" = 401)
 }
 
 func newFake(t *testing.T) *fakeServer {
@@ -106,6 +109,32 @@ func newFake(t *testing.T) *fakeServer {
 			f.completes[id] = c
 			f.mu.Unlock()
 			_, _ = w.Write([]byte(`{"id":"` + id + `","status":"` + c.Result + `"}`))
+		case r.URL.Path == "/api/agent/me":
+			if f.meID == "" {
+				w.WriteHeader(401)
+				return
+			}
+			_, _ = w.Write([]byte(`{"device_id":"` + f.meID + `"}`))
+		case r.URL.Path == "/api/agent/move-result":
+			var m payload.MoveResult
+			_ = json.NewDecoder(r.Body).Decode(&m)
+			if err := contract.Validate("move-result", m); err != nil {
+				t.Errorf("move-result body breaks the contract: %v", err)
+			}
+			f.mu.Lock()
+			f.moves = append(f.moves, m)
+			f.mu.Unlock()
+			_, _ = w.Write([]byte(`{"ok":true}`))
+		case r.URL.Path == "/api/agent/recovery-key/ack":
+			var ack payload.RecoveryKeyAck
+			_ = json.NewDecoder(r.Body).Decode(&ack)
+			if err := contract.Validate("recovery-key-ack", ack); err != nil {
+				t.Errorf("ack body breaks the contract: %v", err)
+			}
+			f.mu.Lock()
+			f.acks = append(f.acks, ack.Version)
+			f.mu.Unlock()
+			_, _ = w.Write([]byte(`{"ok":true}`))
 		default:
 			w.WriteHeader(404)
 		}

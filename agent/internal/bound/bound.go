@@ -576,7 +576,7 @@ func (a *App) unlockWithKey(key string) UnlockResult {
 	if st.EnrollmentKeyHash == nil {
 		return a.unlockFail(modeKey, "This computer has no saved enrollment key, so Settings cannot be opened while the server is unreachable. Connect to the agency network and use the IT PIN, or ask IT to run IT setup again.")
 	}
-	if !st.EnrollmentKeyHash.Verify(key) {
+	if !st.EnrollmentKeyHash.VerifyRecoveryKey(key) {
 		return a.countWrong(modeKey, "That enrollment key is not correct.")
 	}
 	a.svc.LogEvent("warning", "system", "IT settings were opened with the enrollment key (the server was unreachable)")
@@ -690,8 +690,9 @@ func (a *App) Signup(f UserForm, pin string) Result {
 		return signupFailure(err, server)
 	}
 	out := Result{OK: true, Message: "Registered " + res.Hostname + "."}
-	// Keep a salted hash of the key so Settings can open while the server is unreachable.
-	if h, err := config.NewSecretHash(key); err != nil {
+	// Keep a salted hash of the key (normalized, like the hashes the server pushes later) so Settings can
+	// open while the server is unreachable.
+	if h, err := config.NewSecretHash(config.NormalizeRecoveryKey(key)); err != nil {
 		out.Message += " The enrollment key could not be saved (" + err.Error() + "); Settings will need the server to open."
 	} else if err := a.svc.SetEnrollmentKeyHash(h); err != nil {
 		out.Message += " The enrollment key could not be saved (" + err.Error() + "); Settings will need the server to open."
@@ -750,6 +751,19 @@ type Home struct {
 	Sections []Section `json:"sections"`
 	// NeedsReregistration is set when the token is missing from the credential store.
 	NeedsReregistration bool `json:"needsReregistration"`
+}
+
+// MissedUpdate is the home screen notice for a PC that has not reached its server for over 30 days
+// (decided on the PC alone), or "" (also while connected: the connection counts as contact).
+func (a *App) MissedUpdate() string {
+	if a.Connection().Status == "connected" {
+		return ""
+	}
+	st, err := a.svc.Status()
+	if err != nil || !st.MissedUpdate(a.now()) {
+		return ""
+	}
+	return app.MissedUpdateNotice
 }
 
 func (a *App) MyComputer() Home {

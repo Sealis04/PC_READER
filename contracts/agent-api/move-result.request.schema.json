@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pcreader.internal/contracts/agent-api/move-result.request.schema.json",
+  "title": "POST /api/agent/move-result request",
+  "description": "Sent to the old server after a server_moved event: moved true just before the PC switches to the new address, false (with a reason) when it stays. 200 ok.response; 401 bad device token; 404 not_found for an unknown move.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "move_id",
+    "moved"
+  ],
+  "properties": {
+    "move_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "moved": {
+      "type": "boolean"
+    },
+    "reason": {
+      "enum": [
+        "unreachable",
+        "unknown_device",
+        "different_device",
+        "invalid_url"
+      ],
+      "description": "Only when moved is false. unreachable: no usable answer from the new address; unknown_device: it answered 401 to this PC's token; different_device: it knows the token but names another device; invalid_url: the address could not be used."
+    }
+  },
+  "if": {
+    "properties": {
+      "moved": {
+        "const": true
+      }
+    }
+  },
+  "then": {
+    "properties": {
+      "reason": false
+    }
+  },
+  "else": {
+    "required": [
+      "reason"
+    ],
+    "properties": {
+      "reason": true
+    }
+  }
+}

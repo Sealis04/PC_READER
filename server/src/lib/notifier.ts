@@ -9,9 +9,14 @@ interface Connection {
   close: () => void;
 }
 
+// Server-wide news every open stream acts on (a new recovery key, a server move started or ended).
+export type BroadcastKind = "recovery_key" | "server_move";
+type BroadcastListener = (kind: BroadcastKind) => void;
+
 interface NotifierState {
   listeners: Map<string, Set<Listener>>;
   connections: Map<string, Connection>;
+  everyone?: Set<BroadcastListener>;
 }
 
 const g = globalThis as unknown as { __pcreaderNotifier?: NotifierState };
@@ -39,4 +44,15 @@ export function registerConnection(deviceId: string, conn: Connection): () => vo
   return () => {
     if (state.connections.get(deviceId)?.id === conn.id) state.connections.delete(deviceId);
   };
+}
+
+// Every open stream subscribes; broadcast tells all of them at once.
+export function subscribeBroadcast(listener: BroadcastListener): () => void {
+  const set = (state.everyone ??= new Set());
+  set.add(listener);
+  return () => void set.delete(listener);
+}
+
+export function broadcast(kind: BroadcastKind): void {
+  for (const listener of state.everyone ?? []) listener(kind);
 }

@@ -32,6 +32,12 @@ type Config struct {
 	// EnrollmentKeyHash is the salted hash of the enrollment key IT typed at setup. It opens the desktop
 	// app's Settings when the server cannot be reached (the hourly IT PIN is checked by the server).
 	EnrollmentKeyHash *SecretHash `json:"enrollment_key_hash,omitempty"`
+	// RecoveryKeyVersion is the server's version of the key EnrollmentKeyHash belongs to, once the server
+	// pushed it (M7: the enrollment key is the rotating recovery key); 0 when unknown (a hash from setup).
+	RecoveryKeyVersion int `json:"recovery_key_version,omitempty"`
+	// LastServerContactAt is when this PC last reached its server (RFC 3339, UTC). After 30 days without
+	// contact the desktop app says it missed a security update.
+	LastServerContactAt string `json:"last_server_contact_at,omitempty"`
 	// Branding is the server's agency name and logo as last fetched, so the window shows them on an offline start.
 	Branding *Branding `json:"branding,omitempty"`
 	// LegacyITPin is the per-PC PIN hash older versions saved. It is read only to be removed.

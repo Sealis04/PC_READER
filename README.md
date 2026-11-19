@@ -16,8 +16,8 @@ Requires only Docker Desktop (or Docker Engine with Compose). Run the guided set
 
 It asks **Development** or **Production**, then:
 
-1. Writes the env file (`.env` for dev, `.env.prod` for prod; both git-ignored) with a random database password, enrollment key and `SECRETS_KEY`. An existing file can be kept, or replaced: the old one is saved as `<file>.bak-<time>` and its `ENROLLMENT_KEY`, `SECRETS_KEY` and `IT_PIN_SECRET` can be carried over (a new `SECRETS_KEY` makes saved secret fields unreadable).
-2. Asks for the port (suggests a free one and names whatever holds a taken one), the time zone and, optionally, a Cloudflare Tunnel.
+1. Writes the env file (`.env` for dev, `.env.prod` for prod; both git-ignored) with a random database password, enrollment key and `SECRETS_KEY`. An existing file can be kept, or replaced: the old one is saved as `<file>.bak-<time>` and its `ENROLLMENT_KEY`, `SECRETS_KEY` and `IT_PIN_SECRET` can be carried over (a new `SECRETS_KEY` makes saved secret fields and stored recovery keys unreadable). `ENROLLMENT_KEY` only seeds the first recovery key of a new database; after that the dashboard shows and rotates the key (see [Recovery key](#recovery-key-milestone-7)).
+2. Asks for the port (a production re-run suggests the current one and asks before changing it, since that cuts off every PC) (suggests a free one and names whatever holds a taken one), the time zone and, optionally, a Cloudflare Tunnel.
 3. Builds the image, starts Postgres, re-applies the database password to an existing volume (`scripts/reset-db-password.sh`), runs migrations, starts the server and waits until it answers.
 4. Offers the Windows Firewall rule for the port (Linux: prints the `ufw` / `firewalld` command) and prints the LAN addresses PCs use, plus the rebuild, stop and backup commands.
 
@@ -82,6 +82,30 @@ IT defines extra fields once for every computer on the dashboard's **Fields** pa
 - **API (no login, like the rest of the dashboard):** `GET/POST /api/dashboard/fields`, `PATCH /api/dashboard/fields/{id}`, `POST /api/dashboard/fields/order`, `GET /api/dashboard/devices/{id}/fields`, `PUT .../fields/{field}` (text/date), `PUT .../fields/{field}/secret` and `POST .../fields/{field}/reveal` (both with `pin`).
 - **Accepted risk:** there is no dashboard login yet, so anyone who can open the dashboard can also read the IT PIN and reveal secrets. Every reveal is logged. This is fixed when staff login arrives.
 
+## Recovery key (Milestone 7)
+
+The enrollment key is now the **recovery key**: the key IT types when setting up a PC, and the key that opens a PC's Settings when its server cannot be reached.
+
+- **Where it lives:** in the database (`recovery_keys`), encrypted with `SECRETS_KEY` (AES-256-GCM, context `recovery-key:<version>`); read and written only by `server/src/lib/recovery-key.ts`. On an empty table `ENROLLMENT_KEY` from the env file becomes **version 1** unchanged (an existing install keeps its key, PCs and setups keep working); without `ENROLLMENT_KEY` the server makes one. Once keys exist, the env value is ignored, and Settings says so when it differs.
+- **Format of new keys:** 16 characters from `ABCDEFGHJKMNPQRSTUVWXYZ23456789` (no 0/O, 1/I/L) in four groups, e.g. `K7QM-2XRP-9WDF-H4TN`. Typed case-insensitively, dashes and spaces optional.
+- **Rotation:** a new key every 30 days (the server checks on start and hourly; a server timer, not PC polling) and on demand: dashboard **Settings → Recovery key → New key now** with the current IT PIN. Only the **current** version registers a PC. Older versions are kept (encrypted): they still open Settings on the PCs that hold them, offline, but never register a PC.
+- **Seeing the key:** Settings → **Show key** (current IT PIN) shows it for 30 seconds with Copy. A device page shows *Recovery key: v7 (current)* / *v5 (2 behind)* / *unknown* and **Show this PC's recovery key** (the version that PC holds). Every reveal and rotation, successful or not, is appended to `recovery_key_access_log` (never the key).
+- **Keeping PCs in step:** the server never sends the key. Over the events stream it sends `recovery_key` with the version and a salted PBKDF2-SHA256 hash of the normalized key (on connect when the PC has not acknowledged the current version, and to every open stream on rotation). The PC replaces its stored hash and acknowledges with `POST /api/agent/recovery-key/ack { version }`. The device list has a **Recovery key behind (N)** filter.
+- **A PC that missed updates:** IT sees the version it holds on the device page and can reveal that version. The person at the PC sees *"This computer missed a security update. Connect to the office network."* after 30 days without reaching the server; it goes away on the next connection. `pcreader status` shows the version and the last contact.
+- **Without `SECRETS_KEY`:** nothing is stored; `ENROLLMENT_KEY` stays the key as before (no rotation, no reveal, no push) and Settings says why. The server still starts.
+- **Accepted risk:** without a dashboard login, anyone who can open the dashboard can read the IT PIN and so reveal the key. Every reveal is logged.
+
+## Moving the server (Milestone 7)
+
+Give the server a stable address from the start: a name such as `pcreader.office.local` (DNS or the router) or a DHCP reservation. When it has to move anyway (new IP, port or hostname):
+
+1. Start the server at the new address **on the same database** (or let it answer on both addresses for a while).
+2. Dashboard **Settings → Server address**: enter the new URL and the current IT PIN. The server tells every connected PC at once and every other PC when it next connects, as long as the move is active.
+3. Each PC calls `GET <new url>/api/agent/me` with its own token. Only if the new address answers with the **same device id** does it report `moved` to the old server (`POST /api/agent/move-result`), save the address and reconnect there. Otherwise it keeps the old address and reports why: `unreachable`, `unknown_device`, `different_device` or `invalid_url`.
+4. Settings shows how many PCs moved, are waiting (not connected since the move started) and which did not move and why; the device page shows the same per PC. **Cancel move** stops telling PCs (those that moved stay moved). Results are append-only (`server_move_results`).
+
+A PC that misses the move entirely (off for the whole time, then the old address is gone) can be pointed at the new address in its Settings, offline, with the recovery key it holds (shown on its device page). `setup.bat` / `setup.sh` ask for confirmation before a production re-run changes `APP_PORT`, because that cuts off every PC.
+
 ## The hourly IT PIN: the desktop app is view-only without it (Milestone 5)
 
 **What users can do without the IT PIN: view only.** The person at the PC can open *My computer* and *Full details*. Everything else needs IT's approval, usually the current PIN typed by IT: **Report now** (window button and tray item), **signup** (and `pcreader register --pin`), **Update my details** and **Settings**. Work the dashboard asks for (*Scan now*, *Send logs*) needs no PIN.
@@ -100,6 +124,6 @@ A wrong or old PIN is `403 wrong_pin`; 5 wrong PINs per device (per IP at signup
 - **Where IT finds it:** the dashboard's **IT PIN** page (`/it-pin`, linked in the top bar) shows one 6-digit PIN for all PCs, when it changes and a live countdown. It is derived from a server-side secret (HMAC of the hour and a generation counter, like a TOTP code with a 1-hour step) and changes at the top of every hour in `DISPLAY_TIMEZONE`. **Change now** bumps the generation, so the PIN changes immediately; the next hour still rotates it as usual. `GET`/`POST /api/dashboard/it-pin` return/rotate it.
 - **Secret:** `IT_PIN_SECRET` if set, otherwise a random 32-byte secret the server creates on first use and keeps in `it_pin_state`. It never leaves the server. Changing `IT_PIN_SECRET` changes every PIN.
 - **Settings check:** `POST /api/agent/settings-unlock { "pin": "123456" }` with the device token: 200 `{ "ok": true }`, 401 bad token, 403 `wrong_pin`, 429 `too_many_attempts` (5 wrong PINs from a device within a minute). Only the current PIN is accepted. Each checked attempt is appended to `settings_unlock_attempts` and shown on the device page.
-- **Server unreachable:** the app falls back to the enrollment key (checked against a salted hash saved at IT setup); see [agent/README.md](agent/README.md).
+- **Server unreachable:** the app falls back to the recovery key (checked against the salted hash saved at IT setup or pushed by the server; see [Recovery key](#recovery-key-milestone-7) and [agent/README.md](agent/README.md)).
 - **Accepted risk:** there is no dashboard login yet, so anyone who can open the dashboard can read the current PIN. This is fixed when staff login arrives.
 - **Reset a PC:** delete `config.json` in the app data folder and run IT setup again.

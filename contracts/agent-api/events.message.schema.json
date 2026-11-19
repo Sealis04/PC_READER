@@ -2,40 +2,136 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://pcreader.internal/contracts/agent-api/events.message.schema.json",
   "title": "GET /api/agent/events stream messages",
-  "description": "The JSON in the data: line of each event. Event 'hello' is sent first (the stream is open), event 'request' once per pending request (all pending ones on connect, new ones the moment they are queued). Comment lines (': heartbeat') every ~25 s keep proxies from closing an idle stream and carry no data.",
+  "description": "The JSON in the data: line of each event. Event 'hello' is sent first (the stream is open), event 'request' once per pending request (all pending ones on connect, new ones the moment they are queued). Event 'recovery_key' (M7) carries the current recovery key's PBKDF2 hash and version, never the key: sent on connect when the device has not acknowledged the current version, and to every open stream when the key rotates; the PC replaces its stored hash and posts /api/agent/recovery-key/ack. Event 'server_moved' (M7) tells the PC that IT moved the server to url: the PC checks the new address with GET /api/agent/me and its own token, reports the outcome with POST /api/agent/move-result to this (old) server, and switches only on success; it is sent on connect and to open streams while the move is active. Comment lines (': heartbeat') every ~25 s keep proxies from closing an idle stream and carry no data.",
   "oneOf": [
     {
       "type": "object",
       "additionalProperties": false,
-      "required": ["event", "data"],
+      "required": [
+        "event",
+        "data"
+      ],
       "properties": {
-        "event": { "const": "hello" },
+        "event": {
+          "const": "hello"
+        },
         "data": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["heartbeat_seconds"],
-          "properties": { "heartbeat_seconds": { "type": "integer", "minimum": 1 } }
+          "required": [
+            "heartbeat_seconds"
+          ],
+          "properties": {
+            "heartbeat_seconds": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
         }
       }
     },
     {
       "type": "object",
       "additionalProperties": false,
-      "required": ["event", "data"],
+      "required": [
+        "event",
+        "data"
+      ],
       "properties": {
-        "event": { "const": "request" },
+        "event": {
+          "const": "request"
+        },
         "data": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["id", "type", "created_at"],
+          "required": [
+            "id",
+            "type",
+            "created_at"
+          ],
           "properties": {
-            "id": { "type": "string", "format": "uuid" },
-            "type": { "enum": ["scan_now", "send_logs", "prompt_details_update"] },
-            "created_at": { "type": "string", "format": "date-time" },
+            "id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": {
+              "enum": [
+                "scan_now",
+                "send_logs",
+                "prompt_details_update"
+              ]
+            },
+            "created_at": {
+              "type": "string",
+              "format": "date-time"
+            },
             "approval": {
               "type": "string",
               "pattern": "^[A-Za-z0-9_-]{43}$",
               "description": "Only on prompt_details_update: IT's one-time approval code. Sent back in user.request's confirm, it lets the user save their details once without the IT PIN (same employee ID, within 24 hours)."
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "event",
+        "data"
+      ],
+      "properties": {
+        "event": {
+          "const": "recovery_key"
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "version",
+            "hash"
+          ],
+          "properties": {
+            "version": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "hash": {
+              "$ref": "https://pcreader.internal/contracts/agent-api/secret-hash.schema.json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "event",
+        "data"
+      ],
+      "properties": {
+        "event": {
+          "const": "server_moved"
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "move_id",
+            "url"
+          ],
+          "properties": {
+            "move_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "url": {
+              "type": "string",
+              "pattern": "^https?://[^\\s/?#]+(/[^\\s?#]*)?$",
+              "maxLength": 2048,
+              "description": "The new server address (scheme, host, optional port and path; no query or fragment, no trailing slash)."
             }
           }
         }

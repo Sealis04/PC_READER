@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pcreader.internal/contracts/agent-api/ok.response.schema.json",
+  "title": "200 { ok: true } response",
+  "description": "Plain acknowledgement of POST /api/agent/recovery-key/ack and POST /api/agent/move-result.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "ok"
+  ],
+  "properties": {
+    "ok": {
+      "const": true
+    }
+  }
+}

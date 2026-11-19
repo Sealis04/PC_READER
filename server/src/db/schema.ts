@@ -8,6 +8,7 @@ import {
   jsonb,
   pgEnum,
   pgTable,
+  serial,
   text,
   timestamp,
   uniqueIndex,
@@ -51,9 +52,11 @@ export const requestType = pgEnum("request_type", ["scan_now", "send_logs", "pro
 export const requestStatus = pgEnum("request_status", ["pending", "delivered", "done", "failed"]);
 export const connectionType = pgEnum("connection_type", ["ethernet", "wifi", "other"]);
 export const logLevel = pgEnum("log_level", ["error", "warning", "info"]);
-export const unlockMethod = pgEnum("unlock_method", ["hourly_pin", "register", "update_details", "manual_scan", "confirm_details", "reveal_secret", "set_secret"]);
+export const unlockMethod = pgEnum("unlock_method", ["hourly_pin", "register", "update_details", "manual_scan", "confirm_details", "reveal_secret", "set_secret", "reveal_recovery_key", "rotate_recovery_key", "server_move"]);
 export const customFieldType = pgEnum("custom_field_type", ["text", "date", "secret"]);
 export const secretAction = pgEnum("secret_action", ["reveal", "set", "clear"]);
+export const recoveryKeySource = pgEnum("recovery_key_source", ["seed", "auto", "manual"]);
+export const recoveryKeyAction = pgEnum("recovery_key_action", ["reveal", "rotate"]);
 export const logCategory = pgEnum("log_category", ["scan", "sync", "signup", "update", "system"]);
 
 export const users = pgTable("users", {
@@ -91,6 +94,9 @@ export const devices = pgTable(
     online: boolean("online").notNull().default(false),
     connectionId: uuid("connection_id"),
     connectedAt: timestamp("connected_at", { withTimezone: true }),
+    // The recovery key version this PC acknowledged holding (null: unknown, e.g. set up before M7).
+    recoveryKeyVersion: integer("recovery_key_version"),
+    recoveryKeyAckedAt: timestamp("recovery_key_acked_at", { withTimezone: true }),
   },
   (t) => [
     uniqueIndex("devices_token_hash_idx").on(t.tokenHash),
@@ -371,6 +377,63 @@ export const settingsUnlockAttempts = pgTable(
   ],
 );
 
+// The recovery key (the enrollment key since M7): one row per version, the newest is current and the only
+// one that registers PCs. The key is stored only as AES-256-GCM ciphertext (SECRETS_KEY, context
+// "recovery-key:<version>"); verify_hash is SHA-256 of the normalized key for the registration check;
+// pc_hash is the salted PBKDF2 hash pushed to PCs. Read and written only through lib/recovery-key.ts.
+export const recoveryKeys = pgTable("recovery_keys", {
+  version: serial("version").primaryKey(),
+  ciphertext: bytea("ciphertext").notNull(),
+  nonce: bytea("nonce").notNull(),
+  verifyHash: text("verify_hash").notNull(),
+  pcHash: jsonb("pc_hash").notNull(),
+  source: recoveryKeySource("source").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  retiredAt: timestamp("retired_at", { withTimezone: true }),
+});
+
+// Append-only: every reveal (dashboard Settings or a device page) and every rotation, successful or not.
+// Never the key. device_id is set when the reveal was for a device's version.
+export const recoveryKeyAccessLog = pgTable(
+  "recovery_key_access_log",
+  {
+    ...base,
+    action: recoveryKeyAction("action").notNull(),
+    version: integer("version"),
+    deviceId: uuid("device_id").references(() => devices.id, { onDelete: "cascade" }),
+    success: boolean("success").notNull(),
+    clientIp: text("client_ip"),
+    accessedAt: timestamp("accessed_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("recovery_key_access_log_accessed_idx").on(t.accessedAt)],
+);
+
+// A server move IT started on the dashboard: PCs are told to switch to url while it is active
+// (ended_at null). At most one is active; a new one or "Cancel move" ends the previous one.
+export const serverMoves = pgTable("server_moves", {
+  ...base,
+  url: text("url").notNull(),
+  clientIp: text("client_ip"),
+  endedAt: timestamp("ended_at", { withTimezone: true }),
+});
+
+// Append-only: what each PC reported for a move (moved, or not moved with a reason).
+export const serverMoveResults = pgTable(
+  "server_move_results",
+  {
+    ...base,
+    moveId: uuid("move_id")
+      .notNull()
+      .references(() => serverMoves.id),
+    deviceId: uuid("device_id")
+      .notNull()
+      .references(() => devices.id, { onDelete: "cascade" }),
+    moved: boolean("moved").notNull(),
+    reason: text("reason"),
+  },
+  (t) => [index("server_move_results_move_idx").on(t.moveId, t.deviceId, t.createdAt)],
+);
+
 export type Device = typeof devices.$inferSelect;
 export type Component = typeof components.$inferSelect;
 export type NewComponent = typeof components.$inferInsert;
@@ -380,3 +443,5 @@ export type DeviceLog = typeof deviceLogs.$inferSelect;
 export type SettingsUnlockAttempt = typeof settingsUnlockAttempts.$inferSelect;
 export type CustomField = typeof customFields.$inferSelect;
 export type SecretAccessLogRow = typeof secretAccessLog.$inferSelect;
+export type RecoveryKeyRow = typeof recoveryKeys.$inferSelect;
+export type ServerMove = typeof serverMoves.$inferSelect;

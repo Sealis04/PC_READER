@@ -250,6 +250,22 @@ func cmdStatus(stdout io.Writer) error {
 	} else {
 		fmt.Fprintln(stdout, "Token:       stored")
 	}
+	switch {
+	case st.EnrollmentKeyHash == nil:
+		fmt.Fprintln(stdout, "Recovery key: not stored (sent by the server on the next connection)")
+	case st.RecoveryKeyVersion == 0:
+		fmt.Fprintln(stdout, "Recovery key: stored at setup (version not known yet)")
+	default:
+		fmt.Fprintf(stdout, "Recovery key: version %d\n", st.RecoveryKeyVersion)
+	}
+	if st.LastServerContactAt != "" {
+		fmt.Fprintln(stdout, "Last contact:", st.LastServerContactAt)
+	} else {
+		fmt.Fprintln(stdout, "Last contact: not recorded")
+	}
+	if st.MissedUpdate(time.Now()) {
+		fmt.Fprintln(stdout, app.MissedUpdateNotice)
+	}
 	return nil
 }
 
@@ -280,6 +296,7 @@ func cmdListen(ctx context.Context, args []string, stdout, stderr io.Writer) err
 		OnPrompt: func(payload.PendingRequest) {
 			fmt.Fprintln(stdout, "IT asked you to confirm your details (open the PC_READER app)")
 		},
+		OnMoved: func() { fmt.Fprintln(stdout, "IT moved the server; now using the new address") },
 	}
 	fmt.Fprintln(stdout, "Listening for requests from the server. Press Ctrl+C to stop.")
 	err = r.Run(ctx)

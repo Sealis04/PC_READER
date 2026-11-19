@@ -30,6 +30,8 @@ type fakeServer struct {
 	pins, scanTypes map[string]string
 	// registerStatus overrides the register reply when non-zero.
 	registerStatus int
+	// acks are the recovery key versions acknowledged.
+	acks []int
 }
 
 func newServer(t *testing.T) *fakeServer {
@@ -72,6 +74,13 @@ func newServer(t *testing.T) *fakeServer {
 			var u payload.UserDetails
 			_ = json.Unmarshal(body, &u)
 			_ = json.NewEncoder(w).Encode(u)
+		case r.URL.Path == "/api/agent/recovery-key/ack":
+			var ack payload.RecoveryKeyAck
+			_ = json.Unmarshal(body, &ack)
+			f.mu.Lock()
+			f.acks = append(f.acks, ack.Version)
+			f.mu.Unlock()
+			_, _ = w.Write([]byte(`{"ok":true}`))
 		default:
 			w.WriteHeader(404)
 		}

@@ -14,6 +14,8 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/sealis04/pc_reader/agent/internal/api"
@@ -52,6 +54,25 @@ type Client struct {
 	OnClosed     func(wasOpen bool, err error)
 	// OnRequest runs for every "request" event, on the reading goroutine: hand off long work.
 	OnRequest func(payload.PendingRequest)
+	// OnRecoveryKey runs for a "recovery_key" event (the current recovery key's hash and version),
+	// OnServerMoved for a "server_moved" event (IT moved the server). Both on the reading goroutine.
+	OnRecoveryKey func(payload.RecoveryKey)
+	OnServerMoved func(payload.ServerMoved)
+
+	mu        sync.Mutex
+	cancelCur context.CancelFunc // ends the current connection (Reconnect)
+	reconnect atomic.Bool
+}
+
+// Reconnect drops the current connection and connects again at once, reading the credentials anew
+// (after a server move changed the address). The drop is not reported through OnClosed.
+func (c *Client) Reconnect() {
+	c.reconnect.Store(true)
+	c.mu.Lock()
+	if c.cancelCur != nil {
+		c.cancelCur()
+	}
+	c.mu.Unlock()
 }
 
 func (c *Client) http() *http.Client {
@@ -109,6 +130,10 @@ func (c *Client) Run(ctx context.Context) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
+		if c.reconnect.Swap(false) {
+			step = 0
+			continue
+		}
 		if errors.Is(err, api.ErrUnauthorized) {
 			if c.OnClosed != nil {
 				c.OnClosed(opened, err)
@@ -138,6 +163,13 @@ func (c *Client) once(ctx context.Context) (opened bool, err error) {
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	c.mu.Lock()
+	c.cancelCur = cancel
+	c.mu.Unlock()
+	if c.reconnect.Load() {
+		// Reconnect was asked for before this attempt could be cancelled.
+		cancel()
+	}
 
 	u := strings.TrimRight(server, "/") + "/api/agent/events?agent_version=" + url.QueryEscape(c.Version)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
@@ -216,6 +248,22 @@ func (c *Client) dispatch(event, data string, opened *bool) (bad bool) {
 		}
 		if c.OnRequest != nil {
 			c.OnRequest(r)
+		}
+	case "recovery_key":
+		var k payload.RecoveryKey
+		if err := json.Unmarshal([]byte(data), &k); err != nil || k.Version < 1 || len(k.Hash) == 0 {
+			return true
+		}
+		if c.OnRecoveryKey != nil {
+			c.OnRecoveryKey(k)
+		}
+	case "server_moved":
+		var m payload.ServerMoved
+		if err := json.Unmarshal([]byte(data), &m); err != nil || m.MoveID == "" || m.URL == "" {
+			return true
+		}
+		if c.OnServerMoved != nil {
+			c.OnServerMoved(m)
 		}
 	}
 	return false

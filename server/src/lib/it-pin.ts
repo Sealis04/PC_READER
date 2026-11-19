@@ -90,7 +90,7 @@ function safeEqual(a: string, b: string): boolean {
   return x.length === y.length && timingSafeEqual(x, y);
 }
 
-export type PinMethod = "hourly_pin" | "register" | "update_details" | "manual_scan" | "confirm_details" | "reveal_secret" | "set_secret";
+export type PinMethod = "hourly_pin" | "register" | "update_details" | "manual_scan" | "confirm_details" | "reveal_secret" | "set_secret" | "reveal_recovery_key" | "rotate_recovery_key" | "server_move";
 
 export const PIN_METHOD_LABEL: Record<PinMethod, string> = {
   hourly_pin: "Settings",
@@ -100,6 +100,9 @@ export const PIN_METHOD_LABEL: Record<PinMethod, string> = {
   confirm_details: "Confirm details (IT request)",
   reveal_secret: "Reveal secret field",
   set_secret: "Change secret field",
+  reveal_recovery_key: "Show recovery key",
+  rotate_recovery_key: "New recovery key",
+  server_move: "Move server",
 };
 
 // Who is trying: a registered device (all its methods share one limit), or, at signup when there is

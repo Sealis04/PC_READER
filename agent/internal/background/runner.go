@@ -64,12 +64,18 @@ type Runner struct {
 	// approval code, with which the user can save once without the PIN.
 	OnStatus func(Status)
 	OnPrompt func(req payload.PendingRequest)
+	// OnRecoveryKey is called after a pushed recovery key was handled (the window refreshes its notice).
+	OnRecoveryKey func()
+	// OnMoved is called after the PC followed a server move to a new address.
+	OnMoved func()
 
 	mu       sync.Mutex
 	status   Status
 	failNote bool            // a failed attempt was already logged since the last open stream
 	inflight map[string]bool // request ids being handled
 	work     sync.Mutex      // one scan or upload at a time
+	keyMu    sync.Mutex      // one recovery key update at a time
+	moveMu   sync.Mutex      // one server move at a time
 	watcher  *netinfo.Watcher
 	ctx      context.Context
 }
@@ -131,6 +137,7 @@ func (r *Runner) Run(ctx context.Context) error {
 			r.mu.Unlock()
 			r.setStatus(StatusConnected)
 			r.log(locallog.Info, locallog.System, "Connected to the server")
+			_ = r.Svc.RecordContact()
 			go r.sendSnapshot(ctx, nil)
 		},
 		OnClosed: func(wasOpen bool, err error) {
@@ -138,6 +145,10 @@ func (r *Runner) Run(ctx context.Context) error {
 				r.setStatus(StatusReregister)
 				r.log(locallog.Error, locallog.System, "The server no longer recognises this computer; registration is needed")
 				return
+			}
+			if wasOpen {
+				// The server was there until now.
+				_ = r.Svc.RecordContact()
 			}
 			r.setStatus(StatusOffline)
 			r.mu.Lock()
@@ -150,8 +161,10 @@ func (r *Runner) Run(ctx context.Context) error {
 				r.log(locallog.Warning, locallog.System, "Cannot reach the server; will keep trying")
 			}
 		},
-		OnRequest: func(req payload.PendingRequest) { go r.handle(req) },
+		OnRequest:     func(req payload.PendingRequest) { go r.handle(req) },
+		OnRecoveryKey: func(k payload.RecoveryKey) { go r.applyRecoveryKey(k) },
 	}
+	c.OnServerMoved = func(m payload.ServerMoved) { go r.followMove(c, m) }
 	if r.Tune != nil {
 		r.Tune(c)
 	}
@@ -231,6 +244,43 @@ func (r *Runner) handle(req payload.PendingRequest) {
 	}
 	if err != nil && ctx.Err() == nil {
 		r.log(locallog.Warning, locallog.Sync, "Could not confirm a request to the server")
+	}
+}
+
+// applyRecoveryKey saves a pushed recovery key hash and acknowledges it, one at a time so a quick second
+// rotation cannot be overwritten by the first.
+func (r *Runner) applyRecoveryKey(k payload.RecoveryKey) {
+	r.keyMu.Lock()
+	defer r.keyMu.Unlock()
+	if err := r.Svc.ApplyRecoveryKey(r.ctx, k); err != nil && r.ctx.Err() == nil {
+		r.log(locallog.Warning, locallog.System, "The recovery key update was not completed; it is sent again on the next connection")
+	}
+	if r.OnRecoveryKey != nil {
+		r.OnRecoveryKey()
+	}
+}
+
+// followMove checks IT's new server address and switches to it (then reconnects there) only when it
+// recognises this PC. A move the server repeats while it is being handled is ignored.
+func (r *Runner) followMove(c *events.Client, m payload.ServerMoved) {
+	if !r.claim("move:" + m.MoveID) {
+		return
+	}
+	defer r.release("move:" + m.MoveID)
+	r.moveMu.Lock()
+	defer r.moveMu.Unlock()
+	moved, _, err := r.Svc.FollowMove(r.ctx, m)
+	if err != nil {
+		if r.ctx.Err() == nil {
+			r.log(locallog.Warning, locallog.System, "Could not act on the server move")
+		}
+		return
+	}
+	if moved {
+		c.Reconnect()
+		if r.OnMoved != nil {
+			r.OnMoved()
+		}
 	}
 }
 
