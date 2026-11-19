@@ -7,6 +7,7 @@ import { errorResponse } from "@/lib/http";
 import { approvalFor } from "@/lib/it-pin";
 import { registerConnection, subscribe, subscribeBroadcast, type BroadcastKind } from "@/lib/notifier";
 import { pcHashForCurrent } from "@/lib/recovery-key";
+import { moveForDevice } from "@/lib/server-move";
 import { expireStalePrompts } from "@/lib/requests";
 
 export const HEARTBEAT_SECONDS = 25;
@@ -104,7 +105,7 @@ export async function handleEvents(req: Request, db: Db): Promise<Response> {
       };
 
       // Server-wide news: the current recovery key's hash (on connect only when this PC has not
-      // acknowledged it; on rotation always).
+      // acknowledged it; on rotation always), and the active server move until this PC reports it moved.
       const announce = (kind: BroadcastKind, onConnect: boolean) => {
         chain = chain.then(async () => {
           if (closed) return;
@@ -113,6 +114,10 @@ export async function handleEvents(req: Request, db: Db): Promise<Response> {
             if (current && (!onConnect || device.recoveryKeyVersion !== current.version)) {
               send(frame({ event: "recovery_key", data: current }));
             }
+          }
+          if (kind === "server_move") {
+            const move = await moveForDevice(db, device.id);
+            if (move) send(frame({ event: "server_moved", data: { move_id: move.id, url: move.url } }));
           }
         }).catch(() => {
           // sent again on the next reconnect
@@ -132,6 +137,7 @@ export async function handleEvents(req: Request, db: Db): Promise<Response> {
       send(frame({ event: "hello", data: { heartbeat_seconds: HEARTBEAT_SECONDS } }));
       await flush(true);
       await announce("recovery_key", true);
+      await announce("server_move", true);
       timers.heartbeat = setInterval(() => send(encoder.encode(": heartbeat\n\n")), HEARTBEAT_SECONDS * 1000);
       req.signal.addEventListener("abort", () => void cleanup());
       if (req.signal.aborted) await cleanup();

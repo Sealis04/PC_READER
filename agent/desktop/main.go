@@ -145,6 +145,8 @@ func (s *shell) startRunner() {
 			s.emit("prompt-details")
 		},
 		OnRecoveryKey: func() { s.emit("recovery-key") },
+		// The address changed (IT's server move); the connection to the new one follows.
+		OnMoved: func() { s.emit("connection") },
 	}
 	go func() { _ = r.Run(ctx) }()
 }

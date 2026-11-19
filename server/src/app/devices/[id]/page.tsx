@@ -21,6 +21,7 @@ import { getDeviceFields, getSecretAccessLog } from "@/lib/custom-fields";
 import { getUnlockAttempts, PIN_METHOD_LABEL } from "@/lib/it-pin";
 import { RecoveryKeyReveal } from "@/app/_components/recovery-key-reveal";
 import { recoveryStatus, versionLabel } from "@/lib/recovery-key";
+import { activeMove, deviceMoveStates, moveStateLabel } from "@/lib/server-move";
 import { secretsDisabledReason } from "@/lib/secrets-crypto";
 import { REQUEST_TYPES } from "@/lib/requests";
 import { getDeviceDetail, getDeviceHistory, getDeviceLogs, getLatestRequests, getNetworkHistory, LOG_LIMIT, NETWORK_LIMIT } from "@/lib/queries";
@@ -87,7 +88,7 @@ export default async function DevicePage({
   const detail = await getDeviceDetail(db, id);
   if (!detail) notFound();
   const level = LEVELS.find((l) => l === levelParam);
-  const [latestRequests, logs, network, history, unlocks, customRows, secretLog, recovery] = await Promise.all([
+  const [latestRequests, logs, network, history, unlocks, customRows, secretLog, recovery, move] = await Promise.all([
     getLatestRequests(db, id),
     getDeviceLogs(db, id, level),
     getNetworkHistory(db, id),
@@ -96,7 +97,9 @@ export default async function DevicePage({
     getDeviceFields(db, id),
     getSecretAccessLog(db, id),
     recoveryStatus(db),
+    activeMove(db),
   ]);
+  const moveState = move ? (await deviceMoveStates(db, move.id, [id])).get(id) : undefined;
   const fieldRows: FieldRow[] = customRows.map((r) => ({
     id: r.field.id,
     name: r.field.name,
@@ -208,6 +211,12 @@ export default async function DevicePage({
             <dd className="mono">{device.deviceUuid}</dd>
             <dt>Recovery key</dt>
             <dd>{recovery.enabled ? versionLabel(device.recoveryKeyVersion, recovery.version) : "—"}</dd>
+            {move && (
+              <>
+                <dt>Server move</dt>
+                <dd>{moveStateLabel(moveState)}</dd>
+              </>
+            )}
           </dl>
           {recovery.enabled && device.recoveryKeyVersion !== null && (
             <RecoveryKeyReveal url={`/api/dashboard/devices/${device.id}/recovery-key/reveal`} label="Show this PC's recovery key" />

@@ -14,6 +14,8 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/sealis04/pc_reader/agent/internal/api"
@@ -56,6 +58,21 @@ type Client struct {
 	// OnServerMoved for a "server_moved" event (IT moved the server). Both on the reading goroutine.
 	OnRecoveryKey func(payload.RecoveryKey)
 	OnServerMoved func(payload.ServerMoved)
+
+	mu        sync.Mutex
+	cancelCur context.CancelFunc // ends the current connection (Reconnect)
+	reconnect atomic.Bool
+}
+
+// Reconnect drops the current connection and connects again at once, reading the credentials anew
+// (after a server move changed the address). The drop is not reported through OnClosed.
+func (c *Client) Reconnect() {
+	c.reconnect.Store(true)
+	c.mu.Lock()
+	if c.cancelCur != nil {
+		c.cancelCur()
+	}
+	c.mu.Unlock()
 }
 
 func (c *Client) http() *http.Client {
@@ -113,6 +130,10 @@ func (c *Client) Run(ctx context.Context) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
+		if c.reconnect.Swap(false) {
+			step = 0
+			continue
+		}
 		if errors.Is(err, api.ErrUnauthorized) {
 			if c.OnClosed != nil {
 				c.OnClosed(opened, err)
@@ -142,6 +163,13 @@ func (c *Client) once(ctx context.Context) (opened bool, err error) {
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	c.mu.Lock()
+	c.cancelCur = cancel
+	c.mu.Unlock()
+	if c.reconnect.Load() {
+		// Reconnect was asked for before this attempt could be cancelled.
+		cancel()
+	}
 
 	u := strings.TrimRight(server, "/") + "/api/agent/events?agent_version=" + url.QueryEscape(c.Version)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)

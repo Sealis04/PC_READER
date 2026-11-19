@@ -5,7 +5,9 @@ import { logoUrl, getSettings, MAX_LOGO_BYTES, MAX_PREFIX_LENGTH, MIN_PREFIX_LEN
 import { RecoveryKeyReveal } from "@/app/_components/recovery-key-reveal";
 import { formatDateTime } from "@/lib/format";
 import { recoveryStatus } from "@/lib/recovery-key";
+import { MOVE_REASON_LABEL, moveSummary } from "@/lib/server-move";
 import { RotateRecoveryKey } from "./recovery-key-card";
+import { ServerMoveForm } from "./server-move-form";
 import { SettingsForm } from "./settings-form";
 
 export const dynamic = "force-dynamic";
@@ -13,7 +15,7 @@ export const metadata: Metadata = { title: "Settings" };
 
 export default async function SettingsPage() {
   const db = getDb();
-  const [s, rk] = await Promise.all([getSettings(db), recoveryStatus(db)]);
+  const [s, rk, move] = await Promise.all([getSettings(db), recoveryStatus(db), moveSummary(db)]);
   return (
     <>
       <div>
@@ -26,6 +28,41 @@ export default async function SettingsPage() {
           limits={{ logoKb: MAX_LOGO_BYTES / 1024, prefixMin: MIN_PREFIX_LENGTH, prefixMax: MAX_PREFIX_LENGTH }}
         />
         <p className="sub">There is no dashboard login yet, so anyone who can open this page can change these settings.</p>
+      </section>
+      <section>
+        <h2>Server address</h2>
+        <div className="panel pad">
+          <p className="sub">
+            Moving the server to a new IP address, port or name? Start the new server on the same database first, then enter its address here. Each PC
+            switches only after the new address recognises it; PCs that are off follow when they next connect, as long as the move is active.
+          </p>
+          {move && (
+            <>
+              <dl>
+                <dt>Moving to</dt>
+                <dd className="mono">{move.move.url}</dd>
+                <dt>Started</dt>
+                <dd>{formatDateTime(move.move.createdAt)}</dd>
+                <dt>Moved</dt>
+                <dd>{move.moved}</dd>
+                <dt>Waiting</dt>
+                <dd>{move.waiting} (not connected since the move started)</dd>
+                <dt>Not moved</dt>
+                <dd>{move.notMoved.length}</dd>
+              </dl>
+              {move.notMoved.length > 0 && (
+                <ul>
+                  {move.notMoved.map((n) => (
+                    <li key={n.deviceId}>
+                      <Link href={`/devices/${n.deviceId}`}>{n.hostname}</Link>: {n.reason ? MOVE_REASON_LABEL[n.reason] : "no reason given"} ({formatDateTime(n.at)})
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </>
+          )}
+          <ServerMoveForm active={move !== null} />
+        </div>
       </section>
       <section>
         <h2>Recovery key</h2>

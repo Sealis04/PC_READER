@@ -66,6 +66,8 @@ type Runner struct {
 	OnPrompt func(req payload.PendingRequest)
 	// OnRecoveryKey is called after a pushed recovery key was handled (the window refreshes its notice).
 	OnRecoveryKey func()
+	// OnMoved is called after the PC followed a server move to a new address.
+	OnMoved func()
 
 	mu       sync.Mutex
 	status   Status
@@ -73,6 +75,7 @@ type Runner struct {
 	inflight map[string]bool // request ids being handled
 	work     sync.Mutex      // one scan or upload at a time
 	keyMu    sync.Mutex      // one recovery key update at a time
+	moveMu   sync.Mutex      // one server move at a time
 	watcher  *netinfo.Watcher
 	ctx      context.Context
 }
@@ -161,6 +164,7 @@ func (r *Runner) Run(ctx context.Context) error {
 		OnRequest:     func(req payload.PendingRequest) { go r.handle(req) },
 		OnRecoveryKey: func(k payload.RecoveryKey) { go r.applyRecoveryKey(k) },
 	}
+	c.OnServerMoved = func(m payload.ServerMoved) { go r.followMove(c, m) }
 	if r.Tune != nil {
 		r.Tune(c)
 	}
@@ -253,6 +257,30 @@ func (r *Runner) applyRecoveryKey(k payload.RecoveryKey) {
 	}
 	if r.OnRecoveryKey != nil {
 		r.OnRecoveryKey()
+	}
+}
+
+// followMove checks IT's new server address and switches to it (then reconnects there) only when it
+// recognises this PC. A move the server repeats while it is being handled is ignored.
+func (r *Runner) followMove(c *events.Client, m payload.ServerMoved) {
+	if !r.claim("move:" + m.MoveID) {
+		return
+	}
+	defer r.release("move:" + m.MoveID)
+	r.moveMu.Lock()
+	defer r.moveMu.Unlock()
+	moved, _, err := r.Svc.FollowMove(r.ctx, m)
+	if err != nil {
+		if r.ctx.Err() == nil {
+			r.log(locallog.Warning, locallog.System, "Could not act on the server move")
+		}
+		return
+	}
+	if moved {
+		c.Reconnect()
+		if r.OnMoved != nil {
+			r.OnMoved()
+		}
 	}
 }
 

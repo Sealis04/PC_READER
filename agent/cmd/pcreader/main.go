@@ -296,6 +296,7 @@ func cmdListen(ctx context.Context, args []string, stdout, stderr io.Writer) err
 		OnPrompt: func(payload.PendingRequest) {
 			fmt.Fprintln(stdout, "IT asked you to confirm your details (open the PC_READER app)")
 		},
+		OnMoved: func() { fmt.Fprintln(stdout, "IT moved the server; now using the new address") },
 	}
 	fmt.Fprintln(stdout, "Listening for requests from the server. Press Ctrl+C to stop.")
 	err = r.Run(ctx)
