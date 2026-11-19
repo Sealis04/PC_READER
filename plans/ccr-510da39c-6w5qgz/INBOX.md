@@ -3,8 +3,8 @@
 **Repository:** `Sealis04/PC_READER` — if your working directory is another repository, switch to a checkout of this one (`git remote -v`).
 **Feature branch:** `ccr-510da39c-6w5qgz`
 **Active builders:** builder-1 only
-**Reviewer:** not used for M5. **Do not fire the reviewer routine.** When done, open your PR and stop; the planner checks CI and reports to the user.
-**Milestone:** M5 — hourly IT PIN from the dashboard. Plan: [`plans/m5-hourly-it-pin/plan.md`](../m5-hourly-it-pin/plan.md). History: `plans/m{1..4}-*/inbox-log.md`.
+**Reviewer:** not used. **Do not fire the reviewer routine.** When done, open your PR and stop; the planner checks it and reports to the user.
+**Milestone:** M7 — server move and rotating recovery key. Plan: [`plans/m7-server-move-recovery-key/plan.md`](../m7-server-move-recovery-key/plan.md). Earlier: `plans/m{1..6}-*/`.
 
 ## Branch to work on (overrides the routine prompts)
 
@@ -17,6 +17,26 @@ Your session is assigned its own branch (e.g. `claude/<name>`) and must not push
 ## Repo conventions
 
 See the repo `CLAUDE.md`. In short: bun + Drizzle (no Prisma, no `db:push`; `cd server && bun run db:generate` after schema changes, `bun run db:migrate` to apply); Go tests with `-count=1`; `bun run lint` and `bun run test` from the root run everything (server tests need Postgres, `DATABASE_URL` defaults to `postgres://postgres@127.0.0.1:5432/pcreader_test`). The desktop app is its own Go module in `agent/desktop/` (Wails v2); shared logic lives in `agent/internal/` and is unit-tested on Linux.
+
+---
+
+## builder-1 — M7 server move + rotating recovery key (2026-11-19)
+
+Plan: [`plans/m7-server-move-recovery-key/plan.md`](../m7-server-move-recovery-key/plan.md) (decided with the owner on 2026-11-19; visual: https://claude.ai/artifact/S9fomozh7qpVE75UgHtzBV). **This replaces the "Branch to work on" section above for this task.**
+
+**Base:** `origin/claude/festive-cori-ng55ct` = `main` + PR #21 (guided Docker setup: `setup.bat`, `setup.sh`, `compose.local.yml`) + this plan. `git fetch origin claude/festive-cori-ng55ct && git checkout -B <your-assigned-branch> origin/claude/festive-cori-ng55ct`. **Open your PR into `main`, stacked on #21** (say so in the PR).
+
+Implement sections 1–5 of the plan as separate commits, pushing after each. Section 1 changes `contracts/`: add a short note under your summary listing the new schemas and events.
+
+What the owner wants, in short: the enrollment key moves into the database and doubles as the offline **recovery key**; it rotates every 30 days (and on demand with the IT PIN), uses the `K7QM-2XRP-9WDF-H4TN` format, and only the current version registers PCs. The server pushes only a PBKDF2 hash + version to PCs (never the key), PCs acknowledge, old versions stay encrypted with `SECRETS_KEY` so IT can reveal the one a lagging PC holds. IT sees "N behind" per device and a list filter; the desktop app shows a notice after 30 days without server contact. IT can change the server address on the dashboard; PCs switch only after the new address recognises their token, and report the result to the old server.
+
+Keep in mind:
+- Existing installs: the current `ENROLLMENT_KEY` becomes version 1 unchanged (it may be hex, not the new format), and PCs' existing `enrollment_key_hash` (raw key) must keep unlocking.
+- Without `SECRETS_KEY` the server keeps today's behaviour and says why on the dashboard.
+- `setup.bat` and `setup.sh` are twins: change both. `setup.bat` cannot be run on Linux; say so.
+- Never log or return the key, its hash or a PIN outside the reveal response.
+
+**Done when:** `bun run lint` and `bun run test` pass locally (CI does not run on PRs) and the desktop module vets (`cd agent/desktop && GOOS=windows CGO_ENABLED=0 go vet ./`). Say what you could not verify. Write a summary under `### From builder-1 (M7)` and stop. Do not fire the reviewer.
 
 ---
 
