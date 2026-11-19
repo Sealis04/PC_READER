@@ -144,6 +144,7 @@ func (s *shell) startRunner() {
 			s.showWindow()
 			s.emit("prompt-details")
 		},
+		OnRecoveryKey: func() { s.emit("recovery-key") },
 	}
 	go func() { _ = r.Run(ctx) }()
 }

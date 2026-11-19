@@ -17,6 +17,7 @@ import {
   TakePrompt,
   Session,
   Branding,
+  MissedUpdate,
 } from "../wailsjs/go/bound/App";
 import { EventsOn } from "../wailsjs/runtime/runtime";
 
@@ -138,6 +139,15 @@ async function refreshConnection() {
   connection.hidden = !c.status;
   connection.textContent = c.label;
   connection.dataset.status = c.status;
+  refreshMissed();
+}
+
+// "This computer missed a security update": shown on the home screen after 30 days without reaching the
+// server; it goes away once the PC connects again (and the server sends the new recovery key).
+const missedNotice = el("div", {});
+async function refreshMissed() {
+  const text = await MissedUpdate();
+  missedNotice.replaceChildren(text ? message("error", text) : "");
 }
 
 // IT asked the user to confirm their details: open "Update my details" with a message. With IT's
@@ -155,6 +165,7 @@ async function checkPrompt() {
 
 EventsOn("connection", refreshConnection);
 EventsOn("prompt-details", checkPrompt);
+EventsOn("recovery-key", refreshMissed);
 refreshConnection();
 document.querySelector("header.top").append(connection);
 
@@ -368,6 +379,7 @@ function dl(rows) {
 }
 
 function renderHome(h, banner) {
+  refreshMissed();
   const s = h.summary;
   const u = h.assignedUser;
   const status = el("div", {}, banner);
@@ -412,6 +424,7 @@ function renderHome(h, banner) {
   show(
     el("h1", {}, "My computer"),
     el("p", { class: "muted" }, "You can look at your computer's details here. Report now, Update my details and Settings need the IT PIN."),
+    missedNotice,
     h.reported ? "" : el("p", { class: "muted" }, "These specs were just read from this computer and have not been sent to IT yet. Press “Report now”."),
     status,
     h.needsReregistration ? el("div", {}, message("error", h.message), reregisterButton()) : "",

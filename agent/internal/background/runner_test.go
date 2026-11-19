@@ -35,6 +35,7 @@ type fakeServer struct {
 	maxLogs    int // 413 above this many entries per upload (0: no limit)
 	unauth     atomic.Bool
 	streams    atomic.Int32
+	acks       []int // recovery key versions acknowledged
 }
 
 func newFake(t *testing.T) *fakeServer {
@@ -106,6 +107,16 @@ func newFake(t *testing.T) *fakeServer {
 			f.completes[id] = c
 			f.mu.Unlock()
 			_, _ = w.Write([]byte(`{"id":"` + id + `","status":"` + c.Result + `"}`))
+		case r.URL.Path == "/api/agent/recovery-key/ack":
+			var ack payload.RecoveryKeyAck
+			_ = json.NewDecoder(r.Body).Decode(&ack)
+			if err := contract.Validate("recovery-key-ack", ack); err != nil {
+				t.Errorf("ack body breaks the contract: %v", err)
+			}
+			f.mu.Lock()
+			f.acks = append(f.acks, ack.Version)
+			f.mu.Unlock()
+			_, _ = w.Write([]byte(`{"ok":true}`))
 		default:
 			w.WriteHeader(404)
 		}

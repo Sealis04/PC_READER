@@ -201,6 +201,9 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (*Registered, 
 	cfg.ServerURL = serverURL
 	cfg.DeviceID = res.DeviceID
 	cfg.RegisteredAt = now.Format(time.RFC3339)
+	cfg.LastServerContactAt = now.Format(time.RFC3339)
+	// The server pushes its current recovery key version when the app connects.
+	cfg.RecoveryKeyVersion = 0
 	cfg.User = &u
 	if err := cfg.Save(); err != nil {
 		return nil, err
@@ -253,6 +256,7 @@ func (s *Service) Upload(ctx context.Context, sc *payload.Scan, collectedAt time
 	s.logf("info", "sync", "Scan uploaded (%s)", scanType)
 	if opt.ServerURL == "" {
 		cfg.RecordReport(s.now(), sc)
+		cfg.LastServerContactAt = s.now().Format(time.RFC3339)
 		if err := cfg.Save(); err != nil {
 			return id, dup, err
 		}
@@ -340,6 +344,10 @@ type Status struct {
 	// EnrollmentKeyHash is the stored hash of the enrollment key, nil until IT setup or re-registration
 	// saves it (CLI-registered computers have none). It unlocks Settings while the server is unreachable.
 	EnrollmentKeyHash *config.SecretHash
+	// RecoveryKeyVersion is the server version of that hash (0: unknown, saved at setup);
+	// LastServerContactAt is when the server last answered (RFC 3339, "" if never recorded).
+	RecoveryKeyVersion  int
+	LastServerContactAt string
 }
 
 // Status reads config.json and checks that the token is present.
@@ -355,6 +363,7 @@ func (s *Service) Status() (*Status, error) {
 	}
 	st.ServerURL, st.DeviceID, st.DeviceUUID, st.RegisteredAt = cfg.ServerURL, cfg.DeviceID, cfg.DeviceUUID, cfg.RegisteredAt
 	st.LastReportAt, st.User, st.LastPayload = cfg.LastReportAt, cfg.User, cfg.LastPayload
+	st.RecoveryKeyVersion, st.LastServerContactAt = cfg.RecoveryKeyVersion, cfg.LastServerContactAt
 	_, st.TokenErr = s.tokens().Get(cfg.DeviceUUID)
 	return st, nil
 }

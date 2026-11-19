@@ -52,6 +52,10 @@ type Client struct {
 	OnClosed     func(wasOpen bool, err error)
 	// OnRequest runs for every "request" event, on the reading goroutine: hand off long work.
 	OnRequest func(payload.PendingRequest)
+	// OnRecoveryKey runs for a "recovery_key" event (the current recovery key's hash and version),
+	// OnServerMoved for a "server_moved" event (IT moved the server). Both on the reading goroutine.
+	OnRecoveryKey func(payload.RecoveryKey)
+	OnServerMoved func(payload.ServerMoved)
 }
 
 func (c *Client) http() *http.Client {
@@ -216,6 +220,22 @@ func (c *Client) dispatch(event, data string, opened *bool) (bad bool) {
 		}
 		if c.OnRequest != nil {
 			c.OnRequest(r)
+		}
+	case "recovery_key":
+		var k payload.RecoveryKey
+		if err := json.Unmarshal([]byte(data), &k); err != nil || k.Version < 1 || len(k.Hash) == 0 {
+			return true
+		}
+		if c.OnRecoveryKey != nil {
+			c.OnRecoveryKey(k)
+		}
+	case "server_moved":
+		var m payload.ServerMoved
+		if err := json.Unmarshal([]byte(data), &m); err != nil || m.MoveID == "" || m.URL == "" {
+			return true
+		}
+		if c.OnServerMoved != nil {
+			c.OnServerMoved(m)
 		}
 	}
 	return false

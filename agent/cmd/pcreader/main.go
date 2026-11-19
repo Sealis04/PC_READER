@@ -250,6 +250,22 @@ func cmdStatus(stdout io.Writer) error {
 	} else {
 		fmt.Fprintln(stdout, "Token:       stored")
 	}
+	switch {
+	case st.EnrollmentKeyHash == nil:
+		fmt.Fprintln(stdout, "Recovery key: not stored (sent by the server on the next connection)")
+	case st.RecoveryKeyVersion == 0:
+		fmt.Fprintln(stdout, "Recovery key: stored at setup (version not known yet)")
+	default:
+		fmt.Fprintf(stdout, "Recovery key: version %d\n", st.RecoveryKeyVersion)
+	}
+	if st.LastServerContactAt != "" {
+		fmt.Fprintln(stdout, "Last contact:", st.LastServerContactAt)
+	} else {
+		fmt.Fprintln(stdout, "Last contact: not recorded")
+	}
+	if st.MissedUpdate(time.Now()) {
+		fmt.Fprintln(stdout, app.MissedUpdateNotice)
+	}
 	return nil
 }
 

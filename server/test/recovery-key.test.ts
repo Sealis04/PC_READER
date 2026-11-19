@@ -19,7 +19,7 @@ import {
   rotateIfDue,
   versionLabel,
 } from "@/lib/recovery-key";
-import { auth, ENROLLMENT_KEY, jsonRequest, prepareDatabase, registerFixture, resetDatabase, Stream, testPin } from "./helpers";
+import { auth, ENROLLMENT_KEY, jsonRequest, loadFixture, prepareDatabase, registerFixture, resetDatabase, Stream, testPin } from "./helpers";
 
 beforeAll(prepareDatabase);
 beforeEach(resetDatabase);
@@ -59,6 +59,10 @@ describe("key format", () => {
     expect(formatKey("k7qm2xrp9wdfh4tn")).toBe("K7QM-2XRP-9WDF-H4TN");
     // A legacy (seeded) key that is not in the new format is shown as it is.
     expect(formatKey(ENROLLMENT_KEY)).toBe(ENROLLMENT_KEY);
+  });
+  test("the contract fixture's hash is this server's PBKDF2 of the sample key (the agent checks the same)", () => {
+    const m = loadFixture<{ data: { hash: SecretHash } }>("events/recovery-key.json");
+    expect(pcHashMatches(m.data.hash, "k7qm-2xrp 9wdf-h4tn")).toBe(true);
   });
 });
 

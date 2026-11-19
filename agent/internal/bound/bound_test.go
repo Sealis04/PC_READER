@@ -372,7 +372,7 @@ func TestSetupSavesOnlyAHashOfTheEnrollmentKey(t *testing.T) {
 		t.Fatalf("enrollment key in config.json:\n%s", txt)
 	}
 	cfg, _ := config.Load()
-	if cfg.EnrollmentKeyHash == nil || !cfg.EnrollmentKeyHash.Verify("good-key") || cfg.EnrollmentKeyHash.Verify("other-key") {
+	if cfg.EnrollmentKeyHash == nil || !cfg.EnrollmentKeyHash.VerifyRecoveryKey("good-key") || cfg.EnrollmentKeyHash.VerifyRecoveryKey("other-key") {
 		t.Fatalf("stored hash %+v", cfg.EnrollmentKeyHash)
 	}
 	if st := a.State(); st.Screen != "home" {
@@ -648,7 +648,7 @@ func TestRejectedTokenWithoutSavedKeyRegistersAgainWithTheTypedKey(t *testing.T)
 	if res := a.Signup(form(), testPin); !res.OK {
 		t.Fatalf("%+v", res)
 	}
-	if cfg, _ := config.Load(); cfg.EnrollmentKeyHash == nil || !cfg.EnrollmentKeyHash.Verify("good-key") {
+	if cfg, _ := config.Load(); cfg.EnrollmentKeyHash == nil || !cfg.EnrollmentKeyHash.VerifyRecoveryKey("good-key") {
 		t.Fatal("no key hash after re-registering")
 	}
 }
@@ -751,7 +751,7 @@ func TestReregisterThroughITSettingsRefreshesTheKeyHash(t *testing.T) {
 	if res := a.Signup(form(), testPin); !res.OK {
 		t.Fatalf("%+v", res)
 	}
-	if cfg, _ := config.Load(); cfg.EnrollmentKeyHash == nil || !cfg.EnrollmentKeyHash.Verify("good-key") {
+	if cfg, _ := config.Load(); cfg.EnrollmentKeyHash == nil || !cfg.EnrollmentKeyHash.VerifyRecoveryKey("good-key") {
 		t.Fatal("key hash lost while registering again")
 	}
 	if s := a.ITSettings(); s.OK {
@@ -773,7 +773,7 @@ func TestReregistrationGivesACLIRegisteredComputerItsKeyHash(t *testing.T) {
 	if res := a.Signup(form(), testPin); !res.OK {
 		t.Fatalf("%+v", res)
 	}
-	if cfg, _ := config.Load(); cfg.EnrollmentKeyHash == nil || !cfg.EnrollmentKeyHash.Verify("good-key") {
+	if cfg, _ := config.Load(); cfg.EnrollmentKeyHash == nil || !cfg.EnrollmentKeyHash.VerifyRecoveryKey("good-key") {
 		t.Fatal("no key hash after re-registering")
 	}
 }

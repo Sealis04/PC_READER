@@ -305,3 +305,32 @@ func (c *Client) Ping(ctx context.Context) error {
 	}
 	return nil
 }
+
+// AckRecoveryKey tells the server this PC saved the hash of recovery key version (M7).
+func (c *Client) AckRecoveryKey(ctx context.Context, token string, version int) error {
+	var out payload.OK
+	_, err := c.do(ctx, http.MethodPost, "/api/agent/recovery-key/ack", token, payload.RecoveryKeyAck{Version: version}, &out, http.StatusOK)
+	return err
+}
+
+// Me asks this server which device the token belongs to. A PC calls it on a new server address before
+// following a server move. ErrUnauthorized means the address does not know the token. No retries.
+func (c *Client) Me(ctx context.Context, token string) (*payload.Me, error) {
+	once := *c
+	once.Backoff = nil
+	var out payload.Me
+	if _, err := once.do(ctx, http.MethodGet, "/api/agent/me", token, nil, &out, http.StatusOK); err != nil {
+		return nil, err
+	}
+	if out.DeviceID == "" {
+		return nil, errors.New("unexpected response from server")
+	}
+	return &out, nil
+}
+
+// MoveResult reports to this (the old) server whether the PC follows a server move.
+func (c *Client) MoveResult(ctx context.Context, token string, res payload.MoveResult) error {
+	var out payload.OK
+	_, err := c.do(ctx, http.MethodPost, "/api/agent/move-result", token, res, &out, http.StatusOK)
+	return err
+}

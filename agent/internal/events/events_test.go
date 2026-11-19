@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -189,5 +190,49 @@ func TestStatusCallbacksOpenAndClosed(t *testing.T) {
 		if i >= len(log) || log[i] != w {
 			t.Fatalf("log = %v, want prefix %v", log, want)
 		}
+	}
+}
+
+func TestRecoveryKeyAndServerMovedEvents(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "event: hello\ndata: {\"heartbeat_seconds\":25}\n\n")
+		fmt.Fprint(w, "event: recovery_key\ndata: {\"version\":3,\"hash\":{\"algorithm\":\"pbkdf2-sha256\",\"iterations\":600000,\"salt\":\"c2FtcGxlLXNhbHQtMDAwMQ==\",\"hash\":\"ntHNGDoOzP38OmWPb4WpLQntbNx55wljwV10e/M8uDY=\"}}\n\n")
+		fmt.Fprint(w, "event: server_moved\ndata: {\"move_id\":\"7a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d\",\"url\":\"http://pcreader.office.local:3000\"}\n\n")
+		w.(http.Flusher).Flush()
+		<-r.Context().Done()
+	}))
+	defer srv.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	var key payload.RecoveryKey
+	c := &Client{Credentials: creds(srv.URL),
+		OnRecoveryKey: func(k payload.RecoveryKey) { key = k },
+		OnServerMoved: func(m payload.ServerMoved) {
+			if m.MoveID == "" || m.URL != "http://pcreader.office.local:3000" {
+				t.Errorf("move %+v", m)
+			}
+			cancel()
+		}}
+	_ = c.Run(ctx)
+	if key.Version != 3 || !strings.Contains(string(key.Hash), "pbkdf2-sha256") {
+		t.Fatalf("key %+v", key)
+	}
+}
+
+func TestUnreadableRecoveryKeyEndsTheConnection(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "event: hello\ndata: {\"heartbeat_seconds\":25}\n\nevent: recovery_key\ndata: {\"version\":0}\n\n")
+	}))
+	defer srv.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	var closedErr error
+	c := &Client{Credentials: creds(srv.URL), Sleep: noSleep,
+		OnRecoveryKey: func(payload.RecoveryKey) { t.Error("bad key delivered") },
+		OnClosed:      func(_ bool, err error) { closedErr = err; cancel() }}
+	_ = c.Run(ctx)
+	if closedErr == nil || !strings.Contains(closedErr.Error(), "unreadable") {
+		t.Fatalf("closed with %v", closedErr)
 	}
 }
