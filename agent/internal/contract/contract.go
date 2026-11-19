@@ -42,6 +42,12 @@ func load() {
 		"request-complete": "agent-api/request-complete.request.schema.json",
 		"events-message":   "agent-api/events.message.schema.json",
 		"branding":         "agent-api/branding.response.schema.json",
+		// events.message $refs secret-hash (recovery_key event).
+		"secret-hash":      "agent-api/secret-hash.schema.json",
+		"recovery-key-ack": "agent-api/recovery-key-ack.request.schema.json",
+		"move-result":      "agent-api/move-result.request.schema.json",
+		"me":               "agent-api/me.response.schema.json",
+		"ok":               "agent-api/ok.response.schema.json",
 	}
 	// Register every schema under its $id so cross-file $refs resolve offline.
 	for _, rel := range files {

@@ -19,6 +19,11 @@ import settingsUnlockResponseSchema from "./agent-api/settings-unlock.response.s
 import brandingResponseSchema from "./agent-api/branding.response.schema.json";
 import requestCompleteSchema from "./agent-api/request-complete.request.schema.json";
 import requestCompleteResponseSchema from "./agent-api/request-complete.response.schema.json";
+import secretHashSchema from "./agent-api/secret-hash.schema.json";
+import recoveryKeyAckRequestSchema from "./agent-api/recovery-key-ack.request.schema.json";
+import okResponseSchema from "./agent-api/ok.response.schema.json";
+import meResponseSchema from "./agent-api/me.response.schema.json";
+import moveResultRequestSchema from "./agent-api/move-result.request.schema.json";
 
 export const schemas = {
   scanPayload: scanPayloadSchema,
@@ -38,12 +43,18 @@ export const schemas = {
   settingsUnlockRequest: settingsUnlockRequestSchema,
   settingsUnlockResponse: settingsUnlockResponseSchema,
   brandingResponse: brandingResponseSchema,
+  secretHash: secretHashSchema,
+  recoveryKeyAckRequest: recoveryKeyAckRequestSchema,
+  okResponse: okResponseSchema,
+  meResponse: meResponseSchema,
+  moveResultRequest: moveResultRequestSchema,
 };
 
 const ajv = new Ajv2020({ allErrors: true, strict: true });
 addFormats(ajv);
 ajv.addSchema(scanPayloadSchema);
 ajv.addSchema(networkSnapshotSchema);
+ajv.addSchema(secretHashSchema);
 
 export const validateScanPayload = ajv.compile<ScanPayload>(scanPayloadSchema);
 export const validateRegisterRequest = ajv.compile<RegisterRequest>(registerRequestSchema);
@@ -66,6 +77,12 @@ export const validateSettingsUnlockResponse = ajv.compile<SettingsUnlockResponse
 export const validateBrandingResponse = ajv.compile<BrandingResponse>(brandingResponseSchema);
 
 export const validateRequestCompleteResponse = ajv.compile<RequestCompleteResponse>(requestCompleteResponseSchema);
+
+export const validateSecretHash = ajv.getSchema<SecretHash>(secretHashSchema.$id)!;
+export const validateRecoveryKeyAckRequest = ajv.compile<RecoveryKeyAckRequest>(recoveryKeyAckRequestSchema);
+export const validateOkResponse = ajv.compile<OkResponse>(okResponseSchema);
+export const validateMeResponse = ajv.compile<MeResponse>(meResponseSchema);
+export const validateMoveResultRequest = ajv.compile<MoveResultRequest>(moveResultRequestSchema);
 
 export type ValidationIssue = { path: string; message: string };
 
@@ -227,9 +244,49 @@ export interface PendingRequest {
   approval?: string;
 }
 
+// A salted PBKDF2-SHA256 hash in the PC's config.json format (recovery key, never the key itself).
+export interface SecretHash {
+  algorithm: "pbkdf2-sha256";
+  iterations: number;
+  salt: string;
+  hash: string;
+}
+
+export interface RecoveryKeyEvent {
+  version: number;
+  hash: SecretHash;
+}
+
+export interface ServerMovedEvent {
+  move_id: string;
+  url: string;
+}
+
 export type EventsMessage =
   | { event: "hello"; data: { heartbeat_seconds: number } }
-  | { event: "request"; data: PendingRequest };
+  | { event: "request"; data: PendingRequest }
+  | { event: "recovery_key"; data: RecoveryKeyEvent }
+  | { event: "server_moved"; data: ServerMovedEvent };
+
+export interface RecoveryKeyAckRequest {
+  version: number;
+}
+
+export interface OkResponse {
+  ok: true;
+}
+
+export interface MeResponse {
+  device_id: string;
+}
+
+export type MoveFailureReason = "unreachable" | "unknown_device" | "different_device" | "invalid_url";
+
+export interface MoveResultRequest {
+  move_id: string;
+  moved: boolean;
+  reason?: MoveFailureReason;
+}
 
 export const MAX_LOG_BATCH = 500;
 

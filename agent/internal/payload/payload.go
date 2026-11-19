@@ -3,6 +3,8 @@
 // requires every property to be present (null instead of omitted).
 package payload
 
+import "encoding/json"
+
 const SchemaVersion = 1
 
 type Scan struct {
@@ -255,6 +257,49 @@ type PendingRequest struct {
 	// Approval comes with prompt_details_update only: IT's one-time code for saving the details
 	// without the PIN (sent back in UserRequest.Confirm).
 	Approval string `json:"approval,omitempty"`
+}
+
+// RecoveryKey is the data of a "recovery_key" event: the current recovery key's version and its salted
+// PBKDF2 hash (of the normalized key), in config.SecretHash's JSON format. The key itself is never sent.
+type RecoveryKey struct {
+	Version int             `json:"version"`
+	Hash    json.RawMessage `json:"hash"`
+}
+
+// ServerMoved is the data of a "server_moved" event: IT moved the server to URL.
+type ServerMoved struct {
+	MoveID string `json:"move_id"`
+	URL    string `json:"url"`
+}
+
+// RecoveryKeyAck is POST /api/agent/recovery-key/ack.
+type RecoveryKeyAck struct {
+	Version int `json:"version"`
+}
+
+// OK is the { ok: true } reply of the ack and move-result endpoints.
+type OK struct {
+	OK bool `json:"ok"`
+}
+
+// Me is GET /api/agent/me: the device the token belongs to.
+type Me struct {
+	DeviceID string `json:"device_id"`
+}
+
+// Reasons a PC did not follow a server move (move-result.request).
+const (
+	MoveUnreachable     = "unreachable"
+	MoveUnknownDevice   = "unknown_device"
+	MoveDifferentDevice = "different_device"
+	MoveInvalidURL      = "invalid_url"
+)
+
+// MoveResult is POST /api/agent/move-result, sent to the old server. Reason only when Moved is false.
+type MoveResult struct {
+	MoveID string `json:"move_id"`
+	Moved  bool   `json:"moved"`
+	Reason string `json:"reason,omitempty"`
 }
 
 // RequestComplete mirrors request-complete.request; the optional fields are omitted when empty.

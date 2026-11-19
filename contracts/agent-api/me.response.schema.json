@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pcreader.internal/contracts/agent-api/me.response.schema.json",
+  "title": "GET /api/agent/me 200 response",
+  "description": "The device the bearer token belongs to. A PC asks a new server address for it before switching to it (server move): the address must know its token and answer with the same device_id. 401 when the token is unknown.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "device_id"
+  ],
+  "properties": {
+    "device_id": {
+      "type": "string",
+      "format": "uuid"
+    }
+  }
+}

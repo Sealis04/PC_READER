@@ -1,0 +1,12 @@
+{
+  "event": "recovery_key",
+  "data": {
+    "version": 3,
+    "hash": {
+      "algorithm": "pbkdf2-sha256",
+      "iterations": 600000,
+      "salt": "c2FtcGxlLXNhbHQtMDAwMQ==",
+      "hash": "U0FNUExFLWhhc2gtbm90LWEtcmVhbC1rZXktMDAwMDE="
+    }
+  }
+}

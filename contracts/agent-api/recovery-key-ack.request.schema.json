@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pcreader.internal/contracts/agent-api/recovery-key-ack.request.schema.json",
+  "title": "POST /api/agent/recovery-key/ack request",
+  "description": "The PC saved the hash of this recovery key version (from a recovery_key event). 200 ok.response; 401 bad device token; 409 conflict when the version does not exist.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version"
+  ],
+  "properties": {
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    }
+  }
+}

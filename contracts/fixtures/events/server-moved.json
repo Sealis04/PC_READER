@@ -1,0 +1,7 @@
+{
+  "event": "server_moved",
+  "data": {
+    "move_id": "7a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+    "url": "http://pcreader.office.local:3000"
+  }
+}
