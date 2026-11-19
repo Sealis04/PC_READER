@@ -5,3 +5,6 @@ agent
 plans
 docs
 **/.env
+**/.env.*
+setup.bat
+setup.sh

@@ -21,7 +21,8 @@ CI (`.github/workflows/agent.yml`, `server.yml`) runs only on pushes to `main` (
 - `cd server && bun run db:migrate` — apply migrations
 - `cd agent/desktop && wails build -platform windows/amd64` — desktop app (Windows/macOS only; CI builds it on `windows-latest`/`macos-latest` as the `pcreader-desktop` artifact). On Linux only `cd agent/desktop && GOOS=windows CGO_ENABLED=0 go vet ./` is possible; `go vet`/`go test ./...` in `agent/` skip the separate desktop module.
 - `cd agent && PCREADER_E2E_SERVER=... PCREADER_E2E_KEY=... go test -count=1 -run TestEndToEndListen ./cmd/pcreader` — `pcreader listen` receives requests queued while it is connected
-- `docker compose up -d --build` — full local server (needs `.env`, see `.env.example`)
+- `setup.bat` (Windows) / `./setup.sh` (Linux, macOS) — guided Docker setup, dev or prod: writes `.env` / `.env.prod`, builds, migrates, starts, optional Cloudflare Tunnel. The two scripts are twins; change both. Dev = `docker-compose.yml` + `compose.local.yml` (Postgres on 127.0.0.1)
+- `docker compose up -d --build` — full local server by hand (needs `.env`, see `.env.example`)
 
 ## Conventions
 
