@@ -58,7 +58,7 @@ if "%WRITE_ENV%"=="0" (
 ) else if "%ENV%"=="prod" if exist ".env" set "KEYSRC=.env"
 
 set "SAVED_PROJECT="
-if defined PROJSRC call :readfile "%PROJSRC%" SAVED_PROJECT ""
+if defined PROJSRC call :readfile "%PROJSRC%" COMPOSE_PROJECT_NAME "" SAVED_PROJECT
 if defined SAVED_PROJECT (
   set "PROJECT=!SAVED_PROJECT!"
 ) else (
@@ -77,7 +77,7 @@ set "DB_PORT="
 if "%ENV%"=="dev" call :ask_port DB_PORT "Port for the database on this PC, for bun dev and tests only" 5432 %PROJECT%-db-1
 
 set "OLD_TZ=Asia/Manila"
-if defined KEYSRC call :readfile "%KEYSRC%" OLD_TZ "Asia/Manila"
+if defined KEYSRC call :readfile "%KEYSRC%" DISPLAY_TIMEZONE "Asia/Manila" OLD_TZ
 echo Time zone of the dashboard, the inventory number year and the hourly IT PIN.
 call :ask DISPLAY_TIMEZONE "IANA time zone" "!OLD_TZ!"
 
@@ -390,11 +390,13 @@ if not defined %~2 (
 )
 exit /b 0
 
-rem :readfile "file" VAR default  -> VAR from that env file, else default
+rem :readfile "file" KEY default [OUTVAR]  -> OUTVAR (or KEY) = KEY's value in that env file, else default
 :readfile
-set "%~2=%~3"
+set "RF_OUT=%~4"
+if not defined RF_OUT set "RF_OUT=%~2"
+set "%RF_OUT%=%~3"
 if not exist "%~1" exit /b 0
-for /f "usebackq eol=# tokens=1,* delims==" %%a in ("%~1") do if /i "%%a"=="%~2" set "%~2=%%b"
+for /f "usebackq eol=# tokens=1,* delims==" %%a in ("%~1") do if /i "%%a"=="%~2" set "%RF_OUT%=%%b"
 exit /b 0
 
 rem :readenv VAR default  -> VAR from %ENVFILE%, else default
