@@ -1,11 +1,24 @@
-# Local test server for Milestone 1. Copy .env.example to .env and set ENROLLMENT_KEY first.
-# Agents on the LAN reach it at http://<this computer's IP>:3000
+# PC_READER server: PostgreSQL + migrations + Next.js app, optional Cloudflare Tunnel.
+#
+# Guided setup (writes the env file and runs everything below):
+#   Windows: setup.bat      Linux/macOS: ./setup.sh
+# It runs, for production:
+#   docker compose -p pcreader --env-file .env.prod -f docker-compose.yml up -d --build
+# and for development (adds compose.local.yml, which publishes the database on 127.0.0.1):
+#   docker compose -p pcreader-dev --env-file .env -f docker-compose.yml -f compose.local.yml up -d --build
+# Add --profile tunnel to either for the Cloudflare Tunnel.
+#
+# By hand: cp .env.example .env, set ENROLLMENT_KEY and POSTGRES_PASSWORD, then docker compose up -d --build.
+# PCs on the LAN reach it at http://<this computer's IP>:3000 (APP_PORT).
+# --env-file only feeds the ${...} values below; nothing here reads an env file directly.
 services:
   db:
     image: postgres:16
     environment:
       POSTGRES_DB: pcreader
       POSTGRES_USER: pcreader
+      # Postgres uses this only when it creates the volume; setup re-applies it to an existing one
+      # (scripts/reset-db-password.sh), so a new env file still matches the data.
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pcreader}
     volumes:
       - pgdata:/var/lib/postgresql/data
@@ -34,16 +47,39 @@ services:
       target: app
     environment:
       DATABASE_URL: postgres://pcreader:${POSTGRES_PASSWORD:-pcreader}@db:5432/pcreader
-      ENROLLMENT_KEY: ${ENROLLMENT_KEY:?Set ENROLLMENT_KEY in .env}
+      ENROLLMENT_KEY: ${ENROLLMENT_KEY:?Set ENROLLMENT_KEY in the env file}
       CHECKIN_INTERVAL_SECONDS: ${CHECKIN_INTERVAL_SECONDS:-300}
       DISPLAY_TIMEZONE: ${DISPLAY_TIMEZONE:-Asia/Manila}
       IT_PIN_SECRET: ${IT_PIN_SECRET:-}
       SECRETS_KEY: ${SECRETS_KEY:-}
     ports:
-      - "0.0.0.0:3000:3000"
+      # 0.0.0.0: PCs on the LAN connect directly. APP_BIND=127.0.0.1 keeps it to this computer
+      # (and the tunnel, which reaches the app inside Docker as app:3000).
+      - "${APP_BIND:-0.0.0.0}:${APP_PORT:-3000}:3000"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/branding').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
     depends_on:
       migrate:
         condition: service_completed_successfully
+    restart: unless-stopped
+
+  # Optional https address through Cloudflare. Needs --profile tunnel.
+  # Cloudflare public hostname: Service HTTP, URL app:3000 (not localhost).
+  # The dashboard has no login: put Cloudflare Access in front of it (see README).
+  tunnel:
+    profiles: ["tunnel"]
+    image: cloudflare/cloudflared:2026.10.0
+    command: ["tunnel", "--no-autoupdate", "run"]
+    environment:
+      # :- not :?  -- a :? variable is checked even when the profile is off.
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+    depends_on:
+      app:
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:

@@ -7,16 +7,27 @@ Internal tool for registering agency computers, collecting their hardware specs 
 - [Technical specification](docs/technical-spec.md): goals, architecture, components, data model, scan field mapping, agent API, reporting behavior, security, non-functional requirements, deployment and open questions.
 - [Milestone 1 plan](plans/m1-thin-slice/plan.md): the end-to-end thin slice being built now.
 
-## Run the test server (Milestone 1)
+## Run the server
 
-Requires Docker Desktop (or Docker Engine with Compose).
+Requires only Docker Desktop (or Docker Engine with Compose). Run the guided setup from the repo root:
 
-```sh
-cp .env.example .env        # then set ENROLLMENT_KEY and POSTGRES_PASSWORD
-docker compose up -d --build
-```
+- Windows: double-click `setup.bat` (or run it in a terminal)
+- Linux / macOS: `./setup.sh`
 
-Open http://localhost:3000. Other computers on the same network use `http://<this computer's IP>:3000` (allow port 3000 through the firewall). Milestone 1 uses plain HTTP and has no dashboard login, so run it only on a trusted network.
+It asks **Development** or **Production**, then:
+
+1. Writes the env file (`.env` for dev, `.env.prod` for prod; both git-ignored) with a random database password, enrollment key and `SECRETS_KEY`. An existing file can be kept, or replaced: the old one is saved as `<file>.bak-<time>` and its `ENROLLMENT_KEY`, `SECRETS_KEY` and `IT_PIN_SECRET` can be carried over (a new `SECRETS_KEY` makes saved secret fields unreadable).
+2. Asks for the port (suggests a free one and names whatever holds a taken one), the time zone and, optionally, a Cloudflare Tunnel.
+3. Builds the image, starts Postgres, re-applies the database password to an existing volume (`scripts/reset-db-password.sh`), runs migrations, starts the server and waits until it answers.
+4. Offers the Windows Firewall rule for the port (Linux: prints the `ufw` / `firewalld` command) and prints the LAN addresses PCs use, plus the rebuild, stop and backup commands.
+
+Dev and prod are separate Compose projects (`pcreader-dev`, `pcreader`), so both can run on one machine without sharing data. Dev adds `compose.local.yml`, which also publishes Postgres on `127.0.0.1:DB_PORT` for `bun run dev` and the tests. If an earlier `docker compose up` left a database volume, setup offers to keep using it. Running it again is safe.
+
+By hand instead: `cp .env.example .env`, set `ENROLLMENT_KEY` and `POSTGRES_PASSWORD`, then `docker compose up -d --build`.
+
+Open http://localhost:3000. Other computers on the same network use `http://<this computer's IP>:3000` (allow the port through the firewall). It uses plain HTTP and has no dashboard login, so run it only on a trusted network.
+
+**Cloudflare Tunnel (optional).** Setup can add one (`--profile tunnel`, public hostname → Service HTTP `app:3000`) so PCs outside the office reach the server over https. Because anyone who opens the dashboard can read the IT PIN, put a **Cloudflare Access** application on the hostname and add a Bypass policy only for the paths PCs use: `/api/agent/*` (device token, or enrollment key + PIN at signup) and `/api/branding*` (public).
 
 ## Develop
 

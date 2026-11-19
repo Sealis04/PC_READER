@@ -1,0 +1,8 @@
+# Development on one PC, layered on docker-compose.yml (setup.bat / setup.sh, Development):
+#   docker compose -p pcreader-dev --env-file .env -f docker-compose.yml -f compose.local.yml up -d --build
+# Only the differences from production live here.
+services:
+  db:
+    ports:
+      # For tools on this PC only (bun run dev, bun run test, psql). Not reachable from the LAN.
+      - "127.0.0.1:${DB_PORT:-5432}:5432"

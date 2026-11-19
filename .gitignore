@@ -3,7 +3,8 @@ node_modules/
 next-env.d.ts
 *.tsbuildinfo
 .env
-.env.local
+.env.*
+!.env.example
 coverage/
 dist/
 agent/dist/
