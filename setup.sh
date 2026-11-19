@@ -101,6 +101,16 @@ setenv() {
   mv "$tmp" "$ENVFILE"
 }
 
+# confirm_app_port old new  -> on prod, asks before APP_PORT changes: every PC uses the old address.
+confirm_app_port() {
+  [ "$ENV" = prod ] && [ -n "$1" ] && [ "$1" != "$2" ] || return 0
+  say ""
+  say "Changing the port from $1 to $2 cuts off every PC: they keep using port $1."
+  say "To change it safely, start the server on the new port as well and use"
+  say "Settings > Server address on the dashboard, so the PCs follow first."
+  [ "$(choice "Change the port to $2 anyway? [Y/N]" YN)" = Y ]
+}
+
 # env_file_choice  -> WRITE_ENV=1 when $ENVFILE should be (re)written; BACKUP = copy of the old one
 env_file_choice() {
   WRITE_ENV=1
@@ -136,8 +146,8 @@ pick_project() {
 }
 
 # keys  -> ENROLLMENT_KEY, SECRETS_KEY, IT_PIN_SECRET: from $KEYSRC when asked, else new ones.
-# A new SECRETS_KEY makes saved secret fields unreadable; a new ENROLLMENT_KEY breaks the
-# offline Settings fallback on PCs that were set up with the old one.
+# A new SECRETS_KEY makes saved secret fields and stored recovery keys unreadable. ENROLLMENT_KEY
+# only seeds the first recovery key of a new database; after that the server ignores it.
 keys() {
   ENROLLMENT_KEY="" SECRETS_KEY="" IT_PIN_SECRET=""
   if [ -n "$KEYSRC" ]; then
@@ -153,6 +163,9 @@ keys() {
     local gen
     gen=$(randhex 12)
     say "IT types the enrollment key when setting up each PC. Letters, digits and -, at least 12."
+    say "It only seeds a new database: from then on the server keeps it as the recovery key,"
+    say "makes a new one every 30 days and shows it on the dashboard (Settings). Changing it"
+    say "here later has no effect on an existing database."
     while true; do
       ask ENROLLMENT_KEY "Enrollment key" "$gen"
       [[ "$ENROLLMENT_KEY" =~ ^[A-Za-z0-9-]{12,}$ ]] && break
@@ -170,7 +183,8 @@ write_env() {
 COMPOSE_PROJECT_NAME=$PROJECT
 
 # --- Server ---
-# IT types this when setting up a PC. Keep it when re-writing this file.
+# The first recovery key of a NEW database only. After that the server keeps the key, rotates it
+# every 30 days and shows it on the dashboard (Settings); this value is then ignored.
 ENROLLMENT_KEY=$ENROLLMENT_KEY
 # Decrypts the secret custom fields. Back it up with the database; lost key = lost secrets.
 SECRETS_KEY=$SECRETS_KEY
@@ -272,6 +286,10 @@ ensure_port() {
     say ""
     say "Port $port on this computer is already used by $holder."
     ask new "Port to use instead" "$(free_port "$port" "$2")"
+    if [ "$1" = APP_PORT ] && ! confirm_app_port "$port" "$new"; then
+      say "Free port $port (stop $holder), then run ./setup.sh again."
+      return 1
+    fi
     setenv "$1" "$new" || return 1
     port="$new"
   done
@@ -412,7 +430,13 @@ if [ "$WRITE_ENV" = 0 ]; then
 else
   say "Press Enter to accept the value in [brackets]."
   show_used_ports
-  ask_port APP_PORT "Port PCs and browsers use to reach the server" 3000 "$PROJECT-app-1"
+  # A prod re-run suggests the port PCs already use and asks before changing it.
+  OLD_APP_PORT=""
+  [ "$ENV" = prod ] && [ -n "$BACKUP" ] && OLD_APP_PORT=$(readfile "$BACKUP" APP_PORT "")
+  while true; do
+    ask_port APP_PORT "Port PCs and browsers use to reach the server" "${OLD_APP_PORT:-3000}" "$PROJECT-app-1"
+    confirm_app_port "$OLD_APP_PORT" "$APP_PORT" && break
+  done
   DB_PORT=""
   [ "$ENV" = dev ] && ask_port DB_PORT "Port for the database on this computer, for bun dev and tests only" 5432 "$PROJECT-db-1"
 
@@ -491,7 +515,8 @@ fi
 [ -n "$PUBLIC_URL" ] && say "Through the tunnel: $PUBLIC_URL"
 say ""
 say "Setting up a PC: install the desktop app, enter the server address above,"
-say "the enrollment key (ENROLLMENT_KEY in $ENVFILE) and the current IT PIN"
+say "the recovery key (dashboard Settings > Recovery key > Show key; on a new"
+say "database it is ENROLLMENT_KEY in $ENVFILE) and the current IT PIN"
 say "from http://localhost:$APP_PORT/it-pin"
 say ""
 say "After a code change or git pull, rebuild and restart (migrations run on start):"
@@ -515,7 +540,9 @@ else
   say " - Start Docker at boot (sudo systemctl enable docker; on macOS, Docker Desktop"
   say "   'Start when you sign in') and keep the server from sleeping."
   say " - Keep $ENVFILE in a password manager. A lost SECRETS_KEY means lost secret fields."
-  say " - Give this server a fixed IP (DHCP reservation) so PCs keep finding it."
+  say " - Give this server a fixed IP (DHCP reservation) or a name such as"
+  say "   pcreader.office.local, so PCs keep finding it. To move it later, use"
+  say "   Settings > Server address on the dashboard."
   say " - Back up regularly, e.g. a nightly cron job:"
   say "     $DC exec -T db pg_dump -U pcreader -Fc pcreader > pcreader.dump"
   say ""
@@ -523,7 +550,7 @@ fi
 
 if [ ${#PROFILE[@]} -eq 0 ]; then
   say "To add a Cloudflare Tunnel later, run ./setup.sh again and choose Replace;"
-  say "the enrollment key and SECRETS_KEY are kept."
+  say "SECRETS_KEY and the other keys are kept."
 else
   say "Tunnel is on. In Cloudflare:"
   say " - The public hostname must point to Service HTTP, URL app:3000. The tunnel"

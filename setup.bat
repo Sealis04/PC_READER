@@ -72,7 +72,16 @@ if "%WRITE_ENV%"=="0" (
 
 echo Press Enter to accept the value in [brackets].
 call :show_used_ports
-call :ask_port APP_PORT "Port PCs and browsers use to reach the server" 3000 %PROJECT%-app-1
+rem A prod re-run suggests the port PCs already use and asks before changing it.
+set "OLD_APP_PORT="
+set "APP_PORT="
+if "%ENV%"=="prod" if defined BACKUP call :readfile "%BACKUP%" APP_PORT ""
+if defined APP_PORT set "OLD_APP_PORT=!APP_PORT!"
+set "SUGGEST_PORT=3000"
+if defined OLD_APP_PORT set "SUGGEST_PORT=!OLD_APP_PORT!"
+:ask_app_port
+call :ask_port APP_PORT "Port PCs and browsers use to reach the server" !SUGGEST_PORT! %PROJECT%-app-1
+call :confirm_app_port "!OLD_APP_PORT!" "!APP_PORT!" || goto :ask_app_port
 set "DB_PORT="
 if "%ENV%"=="dev" call :ask_port DB_PORT "Port for the database on this PC, for bun dev and tests only" 5432 %PROJECT%-db-1
 
@@ -161,7 +170,8 @@ if not "%APP_BIND%"=="127.0.0.1" (
 if defined PUBLIC_URL echo Through the tunnel: %PUBLIC_URL%
 echo.
 echo Setting up a PC: install the desktop app, enter the server address above,
-echo the enrollment key ^(ENROLLMENT_KEY in %ENVFILE%^) and the current IT PIN
+echo the recovery key ^(dashboard Settings ^> Recovery key ^> Show key; on a new
+echo database it is ENROLLMENT_KEY in %ENVFILE%^) and the current IT PIN
 echo from http://localhost:%APP_PORT%/it-pin
 echo.
 echo After a code change or git pull, rebuild and restart ^(migrations run on start^):
@@ -191,7 +201,9 @@ echo    Keep it on the office network.
 echo  - Docker Desktop: Settings, General, "Start Docker Desktop when you sign in",
 echo    and keep this PC from sleeping. The containers restart on their own.
 echo  - Keep %ENVFILE% in a password manager. A lost SECRETS_KEY means lost secret fields.
-echo  - Give this server a fixed IP ^(DHCP reservation^) so PCs keep finding it.
+echo  - Give this server a fixed IP ^(DHCP reservation^) or a name such as
+echo    pcreader.office.local, so PCs keep finding it. To move it later, use
+echo    Settings ^> Server address on the dashboard.
 echo  - Back up regularly, e.g. a nightly Task Scheduler job:
 echo      %DC% exec -T db pg_dump -U pcreader -Fc pcreader ^> pcreader.dump
 echo.
@@ -202,7 +214,7 @@ exit /b 0
 :leftovers_tunnel
 if not defined PROFILE (
   echo To add a Cloudflare Tunnel later, run setup.bat again and choose Replace;
-  echo the enrollment key and SECRETS_KEY are kept.
+  echo SECRETS_KEY and the other keys are kept.
   echo.
   exit /b 0
 )
@@ -288,8 +300,8 @@ echo.
 exit /b 0
 
 rem :keys  -> ENROLLMENT_KEY, SECRETS_KEY, IT_PIN_SECRET: from %KEYSRC% when asked, else new ones.
-rem A new SECRETS_KEY makes saved secret fields unreadable; a new ENROLLMENT_KEY breaks the
-rem offline Settings fallback on PCs that were set up with the old one.
+rem A new SECRETS_KEY makes saved secret fields and stored recovery keys unreadable. ENROLLMENT_KEY
+rem only seeds the first recovery key of a new database; after that the server ignores it.
 :keys
 set "ENROLLMENT_KEY="
 set "SECRETS_KEY="
@@ -310,6 +322,9 @@ if defined ENROLLMENT_KEY (
 if not defined ENROLLMENT_KEY (
   call :randhex 12 GEN_KEY || exit /b 1
   echo IT types the enrollment key when setting up each PC. Letters, digits and -, at least 12.
+  echo It only seeds a new database: from then on the server keeps it as the recovery key,
+  echo makes a new one every 30 days and shows it on the dashboard ^(Settings^). Changing it
+  echo here later has no effect on an existing database.
   call :ask_enrollment_key
 )
 if not defined SECRETS_KEY call :randb64 32 SECRETS_KEY || exit /b 1
@@ -329,7 +344,8 @@ rem Writes %ENVFILE% from the variables set above. Never echoed to the screen.
   echo COMPOSE_PROJECT_NAME=!PROJECT!
   echo.
   echo # --- Server ---
-  echo # IT types this when setting up a PC. Keep it when re-writing this file.
+  echo # The first recovery key of a NEW database only. After that the server keeps the key, rotates it
+  echo # every 30 days and shows it on the dashboard ^(Settings^); this value is then ignored.
   echo ENROLLMENT_KEY=!ENROLLMENT_KEY!
   echo # Decrypts the secret custom fields. Back it up with the database; lost key = lost secrets.
   echo SECRETS_KEY=!SECRETS_KEY!
@@ -490,8 +506,27 @@ echo.
 echo Port !PORT_NOW! on this PC is already used by !HOLDER!.
 call :free_port !PORT_NOW! %~2
 call :ask NEW_PORT "Port to use instead" "!FREE_PORT!"
+if /i "%~1"=="APP_PORT" (
+  call :confirm_app_port "!PORT_NOW!" "!NEW_PORT!" || (
+    echo Free port !PORT_NOW! ^(stop !HOLDER!^), then run setup.bat again.
+    exit /b 1
+  )
+)
 call :setenv %~1 "!NEW_PORT!" || exit /b 1
 goto :ensure_port
+
+rem :confirm_app_port old new  -> on prod, asks before APP_PORT changes: every PC uses the old address.
+:confirm_app_port
+if not "%ENV%"=="prod" exit /b 0
+if "%~1"=="" exit /b 0
+if "%~1"=="%~2" exit /b 0
+echo.
+echo Changing the port from %~1 to %~2 cuts off every PC: they keep using port %~1.
+echo To change it safely, start the server on the new port as well and use
+echo Settings ^> Server address on the dashboard, so the PCs follow first.
+choice /c YN /m "Change the port to %~2 anyway"
+if errorlevel 2 exit /b 1
+exit /b 0
 
 rem :wait_health url  -> polls for up to 5 minutes, prints the answer
 :wait_health
